@@ -1,0 +1,97 @@
+# configs/default.yaml
+# Single source of truth for all hyperparameters
+
+# =============================================================================
+# PDE and Data Generation
+# =============================================================================
+pde:
+  domain_length: 6.283185307179586  # 2*pi
+  viscosity: 5.0e-4
+  solver_grid: 2048
+  solver_dt: 1.0e-4
+  forcing_modes: 16
+  forcing_sigma_decay: -1.0  # σ_k ∝ k^{forcing_sigma_decay}
+  ou_correlation_time: 0.5
+  ou_sigma_base: 1.0  # base amplitude for forcing
+
+data:
+  output_cadence_steps: 500  # save every 500 solver steps (δ=0.05)
+  n_trajectories: 50
+  train_trajectories: 40
+  val_trajectories: 5
+  test_trajectories: 5
+  snapshots_per_trajectory: 800  # after spinup
+  spinup_snapshots: 200
+  resolution_levels: [64, 128, 256, 512]
+  data_dir: "data"
+
+# =============================================================================
+# FNO Forecaster
+# =============================================================================
+fno:
+  n_fourier_layers: 3
+  width: 32
+  activation: "gelu"
+  # mode truncation per resolution: N_r / 4
+  # 128->32 modes, 256->64 modes, 512->128 modes
+
+fno_training:
+  epochs: 100
+  batch_size: 64
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  scheduler: "cosine"
+
+# =============================================================================
+# Diffusion Corrector (U-Net)
+# =============================================================================
+unet:
+  in_channels: 3  # [x_noisy, u_forecast, u_coarse_up]
+  base_channels: 64
+  channel_mults: [1, 2, 4]  # -> 64, 128, 256
+  n_res_blocks: 1
+  use_attention: false
+  group_norm_groups: 8
+  cond_embed_dim: 128  # dimension for FiLM conditioning
+
+diffusion:
+  T: 1000  # total noise steps
+  schedule: "cosine"
+  # beta_start / beta_end only used for linear schedule
+  beta_start: 1.0e-4
+  beta_end: 0.02
+
+diffusion_training:
+  steps: 150000
+  batch_size: 16
+  lr: 2.0e-4
+  weight_decay: 1.0e-5
+  warmup_steps: 2000
+  ema_decay: 0.9999
+  log_interval: 500
+  save_interval: 25000
+  val_interval: 5000
+
+# =============================================================================
+# Inference
+# =============================================================================
+inference:
+  ddim_steps: 25
+  eta: 0.0  # 0 = deterministic DDIM, 1 = DDPM
+  x0_clamp: 5.0  # clamp x0_pred during DDIM to prevent drift (1D fields peak ~±3.5)
+  n_samples: 1  # number of diffusion samples per time step (>1 for CRPS)
+  test_time_steps: 200  # number of time steps to evaluate
+
+# =============================================================================
+# Paths
+# =============================================================================
+paths:
+  checkpoint_dir: "checkpoints"
+  results_dir: "results"
+  plots_dir: "plots"
+
+# =============================================================================
+# General
+# =============================================================================
+seed: 42
+device: "cuda"  # "auto", "cuda", or "cpu"

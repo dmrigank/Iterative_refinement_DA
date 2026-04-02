@@ -1,0 +1,118 @@
+# configs/kraichnan.yaml
+# 2D Kraichnan turbulence — single source of truth for all 2D hyperparameters
+# 1D config remains in configs/default.yaml (unchanged)
+
+# =============================================================================
+# PDE and Data Generation
+# =============================================================================
+pde:
+  nx: 256
+  ny: 256
+  domain_lx: 6.283185307179586  # 2π
+  domain_ly: 6.283185307179586
+  viscosity: 1.0e-3
+  ekman_drag: 0.05
+  forcing_amplitude: 1.0
+  forcing_band_center: 4.0
+  forcing_band_width: 1.5
+  forcing_correlation_time: 0.5
+  dt: 0.005
+  save_every: 10  # output cadence δ = save_every * dt = 0.05
+
+data:
+  n_trajectories: 50
+  train_trajectories: 44
+  val_trajectories: 3
+  test_trajectories: 3
+  snapshots_per_trajectory: 200
+  burn_in_steps: 4000
+  resolution_levels: [32, 64, 128, 256]
+  data_dir: "data_2d"
+
+# =============================================================================
+# FNO Forecaster (2D)
+# =============================================================================
+fno:
+  n_fourier_layers: 4
+  width: 32 # Can reduce width to 16 for 2D since we have more modes and spatial structure
+  activation: "gelu"
+  # mode truncation per resolution: N / 4 in each dimension
+  # 64x64  -> 16x16 modes
+  # 128x128 -> 32x32 modes
+  # 256x256 -> 64x64 modes
+
+fno_training:
+  epochs: 80
+  batch_size: 32
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  scheduler: "cosine"
+
+# =============================================================================
+# Diffusion Corrector (2D U-Net)
+# =============================================================================
+unet:
+  in_channels: 3  # [w_noisy, w_forecast, w_coarse_up]
+  base_channels: 48
+  channel_mults: [1, 2, 4]  # -> 48, 96, 192
+  n_res_blocks: 1
+  use_attention: true  # at bottleneck only
+  attention_resolution: 32  # spatial dim at which to apply attention
+  group_norm_groups: 8
+  cond_embed_dim: 128
+  padding_mode: "circular"  # CRITICAL for periodic domain
+
+diffusion:
+  T: 1000
+  schedule: "cosine"
+  beta_start: 1.0e-4
+  beta_end: 0.02
+
+diffusion_training:
+  steps: 400000
+  batch_size: 16
+  lr: 2.0e-4
+  weight_decay: 1.0e-5
+  warmup_steps: 5000
+  ema_decay: 0.9999
+  log_interval: 500
+  save_interval: 25000
+  val_interval: 5000
+  # Input noise augmentation to bridge train/inference distribution gap.
+  # At inference, stages 1/2 receive noisy posteriors as coarse inputs instead
+  # of clean GT — augmenting training inputs with stage-calibrated Gaussian
+  # noise teaches the model to be robust to this degradation.
+  augment_inputs: true
+  augment_prob: 0.5       # probability of augmenting each input independently
+  # Per-stage (forecast_scale, coarse_scale) noise std.
+  # Keep scales small — augmentation is a dither, not a distribution shift.
+  # Stage 0: coarse = raw 32×32 obs (clean) → minimal coarse noise
+  # Stage 1/2: coarse = prior-stage posterior → small but nonzero coarse noise
+  augment_noise_scales:   # list of [fc_scale, co_scale] per stage index
+    - [0.05, 0.02]         # stage 0 (32→64)
+    - [0.05, 0.10]         # stage 1 (64→128)
+    - [0.05, 0.10]         # stage 2 (128→256)
+
+# =============================================================================
+# Inference
+# =============================================================================
+inference:
+  ddim_steps: 100
+  eta: 1.0 # 0.0 for deterministic DDIM, 1.0 for stochastic DDPM sampling
+  x0_clamp: 20.0  # 2D vorticity fields peak ~±10, clamp well above that
+  n_samples: 1
+  test_time_steps: 100
+
+# =============================================================================
+# Paths (all separate from 1D)
+# =============================================================================
+paths:
+  checkpoint_dir: "checkpoints_2d"
+  results_dir: "results_2d"
+  plots_dir: "plots_2d"
+
+# =============================================================================
+# General
+# =============================================================================
+seed: 42
+device: "auto"

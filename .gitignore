@@ -1,0 +1,32 @@
+# Data and checkpoints (too large for git)
+data/
+data_2d/
+checkpoints/
+checkpoints_2d/
+results/
+results_2d/
+
+# Excluded docs and misc plots
+CLAUDE.md
+PROMPTs_2D.md
+plots_2d_misc/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Environment
+.env
+*.env
+
+# OS
+.DS_Store
+Thumbs.db
