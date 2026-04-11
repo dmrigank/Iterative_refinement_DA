@@ -3,8 +3,12 @@ data/
 data_2d/
 checkpoints/
 checkpoints_2d/
+checkpoints_oneshot/
+checkpoints_oneshot_1d/
 results/
 results_2d/
+results_oneshot/
+results_oneshot_1d/
 
 # Excluded docs and misc plots
 CLAUDE.md
@@ -30,3 +34,8 @@ build/
 # OS
 .DS_Store
 Thumbs.db
+
+node_modules/
+*.zip
+*.mp4
+*.pt

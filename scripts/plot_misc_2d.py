@@ -6,6 +6,8 @@ Figures produced in plots_2d_misc/:
   fig2_spectrum_annotated.{png,pdf} — energy spectrum with Nyquist / cascade shading
   fig3_resolution_pyramid.{png,pdf} — vorticity thumbnails at 32/64/128/256 with arrows
   fig4_evolution.gif                — animation: GT vs FNO-only vs |error|
+  fig5_sequential_inverse_problem.{png,pdf}
+                                    — fine trajectory above coarse sequence with inference arrow
 
 Usage:
     python scripts/plot_misc_2d.py [--config configs/kraichnan.yaml]
@@ -31,6 +33,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import matplotlib.patches as mpatches
+from matplotlib.patches import FancyArrowPatch
 from matplotlib.animation import FuncAnimation, PillowWriter
 from omegaconf import OmegaConf
 
@@ -170,7 +173,7 @@ def plot_spectrum_annotated(r: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def plot_resolution_pyramid(r: dict, t: int = 50, traj: int = 0) -> None:
-    """Vertical ladder of vorticity thumbnails at 32/64/128/256 with stage labels."""
+    """Horizontal resolution pyramid from coarse to fine."""
 
     resolutions = [32, 64, 128, 256]
     fields = {
@@ -183,51 +186,40 @@ def plot_resolution_pyramid(r: dict, t: int = 50, traj: int = 0) -> None:
     vmax = float(np.percentile(np.abs(fields[256]), 99.5))
     vmax = max(vmax, 1e-6)
 
-    fig = plt.figure(figsize=(2.5, 6))
-
-    # Alternating image rows (tall) and arrow rows (short)
-    # Extra bottom margin so the last resolution label isn't clipped
-    heights = [1.0, 0.35, 1.0, 0.35, 1.0, 0.35, 1.0]
+    fig = plt.figure(figsize=(9.5, 3.2))
     gs = gridspec.GridSpec(
-        7, 1, figure=fig,
-        height_ratios=heights,
-        hspace=0.0,
-        left=0.04, right=0.78, top=0.97, bottom=0.06,
+        1, 7, figure=fig,
+        width_ratios=[0.9, 0.18, 1.15, 0.22, 1.45, 0.26, 1.8],
+        wspace=0.0,
+        left=0.04, right=0.92, top=0.82, bottom=0.18,
     )
 
-    img_rows = [0, 2, 4, 6]
-    gap_rows = [1, 3, 5]
+    img_cols = [0, 2, 4, 6]
+    gap_cols = [1, 3, 5]
 
-    for idx, (res, gs_row) in enumerate(zip(resolutions, img_rows)):
-        ax = fig.add_subplot(gs[gs_row, 0])
+    for res, gs_col in zip(resolutions, img_cols):
+        ax = fig.add_subplot(gs[0, gs_col])
         ax.imshow(
             fields[res], cmap=CMAP_FIELD, vmin=-vmax, vmax=vmax,
             origin="lower", aspect="equal", interpolation="nearest",
         )
         ax.set_xticks([])
         ax.set_yticks([])
-        # Resolution label inside the image (bottom-left), white text on dark bg
         ax.text(0.04, 0.04, f"{res}×{res}", ha="left", va="bottom",
                 transform=ax.transAxes, fontsize=8, color="white",
                 bbox=dict(boxstyle="round,pad=0.2", fc="black", alpha=0.45, lw=0))
 
-    # Arrow + label rows
-    fno_labels  = ["$F_{64}$",   "$F_{128}$",  "$F_{256}$"]
-    diff_labels = ["$G$  (r=0)", "$G$  (r=1)", "$G$  (r=2)"]
-
-    for gap_row, fno_lbl, diff_lbl in zip(gap_rows, fno_labels, diff_labels):
-        ax = fig.add_subplot(gs[gap_row, 0])
+    for gap_col in gap_cols:
+        ax = fig.add_subplot(gs[0, gap_col])
         ax.set_xlim(0, 1)
         ax.set_ylim(0, 1)
         ax.axis("off")
         ax.annotate(
-            "", xy=(0.5, 0.05), xytext=(0.5, 0.95),
+            "", xy=(0.92, 0.5), xytext=(0.08, 0.5),
             arrowprops=dict(arrowstyle="-|>", color="black", lw=1.5),
         )
-        ax.text(0.42, 0.5, fno_lbl,  ha="right", va="center", fontsize=8,
-                color="steelblue")
-        ax.text(0.58, 0.5, diff_lbl, ha="left",  va="center", fontsize=8,
-                color="tomato")
+
+    fig.suptitle("Resolution pyramid", fontsize=13, y=0.93)
 
     _save(fig, "fig3_resolution_pyramid")
 
@@ -289,6 +281,150 @@ def plot_evolution_gif(r: dict, traj: int = 0, fps: int = 5) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Figure 5 — Sequential inverse problem schematic
+# ---------------------------------------------------------------------------
+
+def plot_sequential_inverse_problem(
+    r: dict,
+    traj: int = 0,
+    n_show: int = 5,
+) -> None:
+    """Visual definition of the sequential inverse problem in 2D.
+
+    Top row:    fine 256x256 trajectory snapshots.
+    Bottom row: corresponding coarse 32x32 observations.
+    Middle:     annotation indicating the goal of reconstructing the fine
+                trajectory from the full coarse sequence.
+    """
+
+    T = r["truth_256"].shape[1]
+    n_show = max(3, min(n_show, T))
+    t_indices = np.linspace(0, T - 1, n_show, dtype=int)
+
+    truth_seq = r["truth_256"][traj, t_indices].numpy()
+    obs_seq   = r["obs_32"][traj, t_indices].numpy()
+
+    vmax = float(np.percentile(np.abs(truth_seq), 99.5))
+    vmax = max(vmax, 1e-6)
+
+    fig = plt.figure(figsize=(2.35 * n_show + 1.8, 6.1))
+    gs = gridspec.GridSpec(
+        2, n_show, figure=fig,
+        hspace=0.22, wspace=0.08,
+        left=0.10, right=0.90, top=0.86, bottom=0.16,
+    )
+
+    axes_top: list[plt.Axes] = []
+    axes_bot: list[plt.Axes] = []
+
+    for col, t in enumerate(t_indices):
+        ax_top = fig.add_subplot(gs[0, col])
+        ax_bot = fig.add_subplot(gs[1, col])
+        axes_top.append(ax_top)
+        axes_bot.append(ax_bot)
+
+        im_top = ax_top.imshow(
+            truth_seq[col],
+            cmap=CMAP_FIELD,
+            vmin=-vmax,
+            vmax=vmax,
+            origin="lower",
+            aspect="equal",
+            interpolation="bilinear",
+        )
+        ax_top.set_xticks([])
+        ax_top.set_yticks([])
+        ax_top.set_title(f"$t={t}$", fontsize=12, pad=5)
+
+        ax_bot.imshow(
+            obs_seq[col],
+            cmap=CMAP_FIELD,
+            vmin=-vmax,
+            vmax=vmax,
+            origin="lower",
+            aspect="equal",
+            interpolation="nearest",
+        )
+        ax_bot.set_xticks([])
+        ax_bot.set_yticks([])
+
+    # Row labels
+    fig.text(
+        0.035, 0.67,
+        "Fine trajectory\n$\\{\\omega_t\\}_{t=0}^{T}$\n(256$\\times$256)",
+        va="center", ha="center", rotation=90, fontsize=14,
+    )
+    fig.text(
+        0.035, 0.29,
+        "Coarse observations\n$\\{y_t\\}_{t=0}^{T}$\n(32$\\times$32)",
+        va="center", ha="center", rotation=90, fontsize=14, color="dimgray",
+    )
+
+    # Time-direction arrows across the two rows
+    for ax_row in (axes_top, axes_bot):
+        for ax_l, ax_r in zip(ax_row[:-1], ax_row[1:]):
+            bb_l = ax_l.get_position()
+            bb_r = ax_r.get_position()
+            y = 0.5 * (bb_l.y0 + bb_l.y1)
+            arrow = FancyArrowPatch(
+                (bb_l.x1 + 0.005, y),
+                (bb_r.x0 - 0.005, y),
+                transform=fig.transFigure,
+                arrowstyle="-|>",
+                mutation_scale=12,
+                lw=1.2,
+                color="black" if ax_row is axes_top else "dimgray",
+                alpha=0.9,
+            )
+            fig.add_artist(arrow)
+
+    # Inference arrow from coarse sequence to fine trajectory on the right
+    bb_top = axes_top[-1].get_position()
+    bb_bot = axes_bot[-1].get_position()
+    x_arrow = bb_top.x1 + 0.035
+    infer_arrow = FancyArrowPatch(
+        (x_arrow, bb_bot.y1 - 0.01),
+        (x_arrow, bb_top.y0 + 0.01),
+        transform=fig.transFigure,
+        arrowstyle="-|>",
+        mutation_scale=16,
+        lw=2.0,
+        color="#2f2f2f",
+    )
+    fig.add_artist(infer_arrow)
+    fig.text(
+        x_arrow + 0.025,
+        0.5 * (bb_top.y0 + bb_bot.y1),
+        "Sequential inverse problem:\nrecover the fine trajectory\nfrom the coarse sequence",
+        va="center",
+        ha="left",
+        fontsize=12,
+        color="#2f2f2f",
+    )
+
+    # Shared colorbar
+    cax = fig.add_axes([0.18, 0.05, 0.52, 0.03])
+    cbar = fig.colorbar(im_top, cax=cax, orientation="horizontal")
+    cbar.ax.tick_params(labelsize=9)
+    cbar.set_label("Vorticity  $\\omega$", fontsize=11, labelpad=3)
+
+    fig.suptitle(
+        "Sequential Inverse Problem",
+        fontsize=15,
+        y=0.95,
+    )
+    fig.text(
+        0.46, 0.115,
+        r"Given the full coarse sequence $\{y_t\}_{t=0}^{T}$, infer the latent fine trajectory $\{\omega_t\}_{t=0}^{T}$",
+        ha="center",
+        va="center",
+        fontsize=12,
+    )
+
+    _save(fig, "fig5_sequential_inverse_problem")
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -300,7 +436,7 @@ def parse_args() -> argparse.Namespace:
                    help="Trajectory index to use for field plots (default: 0)")
     p.add_argument("--snapshot_t", type=int, default=50,
                    help="Time step for snapshot figures (default: 50)")
-    p.add_argument("--figures",    type=str, default="1,2,3,4",
+    p.add_argument("--figures",    type=str, default="1,2,3,4,5",
                    help="Comma-separated figures to generate (default: all)")
     p.add_argument("--fps",        type=int, default=5,
                    help="Frames per second for GIF animation (default: 5)")
@@ -334,6 +470,10 @@ def main() -> None:
     if 4 in figs:
         print("\nFigure 4: Evolution GIF ...")
         plot_evolution_gif(r, traj=args.traj, fps=args.fps)
+
+    if 5 in figs:
+        print("\nFigure 5: Sequential inverse problem schematic ...")
+        plot_sequential_inverse_problem(r, traj=args.traj)
 
     print(f"\nAll figures saved to {PLOTS_DIR}/")
 

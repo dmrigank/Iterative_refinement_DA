@@ -1,0 +1,64 @@
+# configs/oneshot_sr.yaml
+# One-shot diffusion SR baseline with temporal conditioning
+# Maps 32×32 → 256×256 directly (no resolution hierarchy)
+# Conditioned on previous 256×256 state + current 32×32 observation
+
+# =============================================================================
+# Data — reuses the same Kraichnan dataset from data_2d/
+# =============================================================================
+data:
+  data_dir: "data_2d"
+  train_trajectories: 16
+  val_trajectories: 2
+  test_trajectories: 2
+  snapshots_per_trajectory: 200
+  coarse_resolution: 32
+  target_resolution: 256
+
+# =============================================================================
+# Diffusion U-Net (one-shot, no resolution conditioning)
+# =============================================================================
+unet:
+  in_channels: 3  # [w_noisy, w_prev_256, w_obs_32_upsampled_to_256]
+  base_channels: 64  # larger than iterative (48) to be fair on capacity
+  channel_mults: [1, 2, 4]  # -> 64, 128, 256
+  n_res_blocks: 1
+  use_attention: true
+  attention_resolution: 32
+  group_norm_groups: 8
+  cond_embed_dim: 128
+  padding_mode: "circular"
+
+diffusion:
+  T: 1000
+  schedule: "cosine"
+
+diffusion_training:
+  steps: 200000
+  batch_size: 8
+  lr: 2.0e-4
+  weight_decay: 1.0e-5
+  warmup_steps: 3000
+  ema_decay: 0.9999
+  log_interval: 500
+  save_interval: 25000
+  val_interval: 5000
+
+# =============================================================================
+# Inference
+# =============================================================================
+inference:
+  ddim_steps: 100
+  eta: 1.0
+  test_time_steps: 150
+
+# =============================================================================
+# Paths (separate from iterative refinement)
+# =============================================================================
+paths:
+  checkpoint_dir: "checkpoints_oneshot"
+  results_dir: "results_oneshot"
+  plots_dir: "plots_oneshot"
+
+seed: 42
+device: "auto"
