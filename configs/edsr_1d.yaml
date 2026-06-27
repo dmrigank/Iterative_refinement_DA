@@ -1,0 +1,56 @@
+# configs/edsr_1d.yaml
+# EDSR super-resolution baseline for 1D Burgers: 64-pt -> 512-pt (x8).
+# Each timestep is upscaled independently from the coarse observation.
+# Do NOT modify any existing 1D/2D/oneshot files.
+
+# =============================================================================
+# Data
+# =============================================================================
+data:
+  data_dir: "data"
+  resolution_in: 64
+  resolution_out: 512
+
+# =============================================================================
+# EDSR-1D Model
+# =============================================================================
+model:
+  n_resblocks: 16         # EDSR-baseline: 16 residual blocks
+  n_feats: 64             # feature channels throughout the network
+  scale: 8                # upscaling factor (64 -> 512)
+  res_scale: 0.1          # residual scaling (stabilises deep networks)
+
+# =============================================================================
+# Training
+# =============================================================================
+training:
+  steps: 150000           # same budget as 1D iterative diffusion
+  batch_size: 64          # 1D sequences are cheap; match FNO batch size
+  lr: 1.0e-4
+  weight_decay: 0.0
+  warmup_steps: 2000
+  log_interval: 500
+  save_interval: 25000
+  val_interval: 5000
+  loss: "l1"
+  grad_clip: 1.0
+
+# =============================================================================
+# Inference
+# =============================================================================
+inference:
+  test_time_steps: 700    # match 1D iterative refinement evaluation length
+
+# =============================================================================
+# Paths (all separate from 1D/2D/oneshot outputs)
+# =============================================================================
+paths:
+  checkpoint_dir: "checkpoints_edsr_1d"
+  results_dir: "results_edsr_1d"
+  plots_dir: "plots_edsr_1d"
+
+# =============================================================================
+# General
+# =============================================================================
+seed: 42
+device: "auto"

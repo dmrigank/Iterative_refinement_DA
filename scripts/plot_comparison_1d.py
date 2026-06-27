@@ -281,35 +281,25 @@ def plot_spectrum_comparison(
     ro: dict,
     truth_all: torch.Tensor,
     traj: int = 0,
+    k_max_plot: int = 192,
+    k_max_bicubic: int = 32,
 ) -> None:
     """Per-trajectory energy spectra at the same four timesteps used in Fig. 1.
 
-    Uses a 2x2 layout with one panel per timestep. Each panel overlays ground
-    truth, LR observation spectrum, and the three reconstruction methods. A
-    light display-only smoothing is applied in log-space so single-trajectory
-    spectra read cleanly without changing the overall spectral trend. The
-    plotted quantity is the compensated spectrum k^2 E(k), which makes
-    departures from Burgers-like k^{-2} scaling easier to compare visually.
+    Each panel shows the plain spectrum E(k) on log-log axes, following the
+    same visual language as the main paper spectrum figure. Bicubic is
+    intentionally truncated to the trustworthy low-k range because its
+    high-k tail is interpolation artifact rather than recovered physics.
     """
     T = truth_all.shape[1]
     t_indices = [0, T // 4, T // 2, T - 1]
     k_full = np.arange(1, truth_all.shape[-1] // 2 + 1)   # 1..256
     k_obs = np.arange(1, ro["obs_64"].shape[-1] // 2 + 1)  # 1..32
-    eps = 1e-16
+    full_mask = k_full <= k_max_plot
+    bic_mask = k_full <= min(k_max_plot, k_max_bicubic)
 
-    def _smooth_log_spectrum(E: np.ndarray, window: int = 7) -> np.ndarray:
-        if window <= 1 or E.size < window:
-            return E
-        pad = window // 2
-        logE = np.log10(np.maximum(E, eps))
-        logE_pad = np.pad(logE, pad_width=pad, mode="edge")
-        kernel = np.ones(window, dtype=np.float64) / window
-        smoothed = np.convolve(logE_pad, kernel, mode="valid")
-        return np.power(10.0, smoothed)
-
-    raw_spectra: dict[tuple[str, int], np.ndarray] = {}
-    y_floor_candidates = []
-    y_max = 0.0
+    spectra: dict[tuple[str, int], np.ndarray] = {}
+    y_candidates = []
     for t in t_indices:
         E_gt = energy_spectrum(truth_all[traj, t]).numpy()[1:]
         E_obs = energy_spectrum(ro["obs_64"][traj, t]).numpy()[1:]
@@ -317,82 +307,109 @@ def plot_spectrum_comparison(
         E_one = energy_spectrum(ro["posterior_512"][traj, t]).numpy()[1:]
         E_iter = energy_spectrum(ri["posterior_512"][traj, t]).numpy()[1:]
 
-        raw_spectra[("gt", t)] = E_gt
-        raw_spectra[("obs", t)] = E_obs
-        raw_spectra[("bic", t)] = E_bic
-        raw_spectra[("one", t)] = E_one
-        raw_spectra[("iter", t)] = E_iter
+        spectra[("gt", t)] = E_gt
+        spectra[("obs", t)] = E_obs
+        spectra[("bic", t)] = E_bic
+        spectra[("one", t)] = E_one
+        spectra[("iter", t)] = E_iter
 
-        CE_gt = (k_full ** 2) * E_gt
-        CE_obs = (k_obs ** 2) * E_obs
-        CE_bic = (k_full ** 2) * E_bic
-        CE_one = (k_full ** 2) * E_one
-        CE_iter = (k_full ** 2) * E_iter
+        y_candidates.extend([
+            E_gt[full_mask],
+            E_obs,
+            E_bic[bic_mask],
+            E_one[full_mask],
+            E_iter[full_mask],
+        ])
 
-        y_floor_candidates.extend([CE_gt[CE_gt > 0].min(), CE_obs[CE_obs > 0].min()])
-        y_max = max(y_max, CE_gt.max(), CE_bic.max(), CE_one.max(), CE_iter.max(), CE_obs.max())
+    y_all = np.concatenate(y_candidates)
+    y_positive = y_all[y_all > 0]
+    y_min = float(y_positive.min()) * 0.7
+    y_max = float(y_all.max()) * 1.2
 
-    y_min = min(y_floor_candidates) * 0.7
+    ref_k = np.array([3.0, float(k_full[full_mask].max())])
+    ref_anchor = 5
 
-    fig, axes = plt.subplots(2, 2, figsize=(12.5, 8.8), sharex=True, sharey=True)
+    fig, axes = plt.subplots(2, 2, figsize=(12.6, 8.4), sharex=True, sharey=True)
     axes = axes.ravel()
 
     for ax, t in zip(axes, t_indices):
-        C_gt = _smooth_log_spectrum((k_full ** 2) * raw_spectra[("gt", t)], window=7)
-        C_one = _smooth_log_spectrum((k_full ** 2) * raw_spectra[("one", t)], window=7)
-        C_iter = _smooth_log_spectrum((k_full ** 2) * raw_spectra[("iter", t)], window=7)
-        C_bic = _smooth_log_spectrum((k_obs ** 2) * raw_spectra[("bic", t)][:k_obs[-1]], window=5)
-        C_obs = _smooth_log_spectrum((k_obs ** 2) * raw_spectra[("obs", t)], window=5)
+        E_gt = spectra[("gt", t)]
+        E_obs = spectra[("obs", t)]
+        E_bic = spectra[("bic", t)]
+        E_one = spectra[("one", t)]
+        E_iter = spectra[("iter", t)]
 
-        ax.axvspan(k_obs[-1], k_full[-1], color="gray", alpha=0.06, zorder=0)
-        ax.loglog(k_full, C_gt, color=C_GT, lw=2.4, label="Ground truth", zorder=5)
-        ax.loglog(k_obs, C_obs, color="gray", lw=1.8, ls=":", label="LR obs (64-pt)", zorder=6)
-        ax.loglog(k_obs, C_bic, color=C_BIC, lw=2.0, ls="--", label="Bicubic", zorder=6)
-        ax.loglog(k_full, C_one, color=C_ONE, lw=2.0, label="One-Shot SR", zorder=4)
-        ax.loglog(k_full, C_iter, color=C_ITER, lw=2.0, label="Iterative Refinement", zorder=4)
-        ax.axvline(k_obs[-1], color="gray", lw=1.0, ls=":", alpha=0.7)
-        ax.set_title(f"t = {t}", fontsize=12)
-        ax.set_xlim(1, k_full[-1])
-        ax.set_ylim(y_min, y_max * 1.15)
+        ref_amp = E_gt[ref_anchor - 1] * (float(ref_anchor) ** 2)
+        ref_y = ref_amp * ref_k ** (-2.0)
 
-    axes[0].set_ylabel(r"$k^2 E(k)$")
-    axes[2].set_ylabel(r"$k^2 E(k)$")
-    axes[2].set_xlabel("Wavenumber  k")
-    axes[3].set_xlabel("Wavenumber  k")
+        ax.loglog(k_full[full_mask], E_gt[full_mask], color=C_GT, lw=2.3, ls="-", label="Ground truth")
+        ax.loglog(k_obs, E_obs, color="dimgray", lw=1.8, ls=":", label="LR obs (64)")
+        ax.loglog(k_full[bic_mask], E_bic[bic_mask], color=C_BIC, lw=2.0, ls="-.", label="Bicubic")
+        ax.loglog(k_full[full_mask], E_one[full_mask], color=C_ONE, lw=2.0, ls="--", label="One-Shot SR")
+        ax.loglog(
+            k_full[full_mask],
+            E_iter[full_mask],
+            color=C_ITER,
+            lw=2.0,
+            ls=(0, (7, 2.2)),
+            label="Iterative Refinement",
+        )
+        ax.loglog(ref_k, ref_y, color="gray", lw=1.0, ls=(0, (1, 2.2)), label=r"$k^{-2}$")
+
+        ax.axvline(32, color="gray", ls=":", lw=0.9, alpha=0.65)
+        ax.text(
+            0.97,
+            0.95,
+            f"t = {t}",
+            transform=ax.transAxes,
+            ha="right",
+            va="top",
+            fontsize=11,
+            bbox=dict(boxstyle="round,pad=0.22", fc="white", ec="none", alpha=0.82),
+        )
+        ax.set_xlim(1, k_max_plot)
+        ax.set_ylim(y_min, y_max)
+
+    axes[0].set_ylabel(r"$E(k) = |\hat{u}_k|^2$")
+    axes[2].set_ylabel(r"$E(k) = |\hat{u}_k|^2$")
+    axes[2].set_xlabel("Wavenumber $k$")
+    axes[3].set_xlabel("Wavenumber $k$")
+
     axes[1].text(
-        0.98, 0.95,
-        "Shaded: k > 32\n(super-resolved range)",
+        0.05,
+        0.11,
+        "Bicubic shown only through k = 32\n(to suppress interpolation-driven high-k tail)",
         transform=axes[1].transAxes,
-        ha="right",
-        va="top",
+        ha="left",
+        va="bottom",
         fontsize=9,
         color="dimgray",
-        bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="none", alpha=0.85),
+        bbox=dict(boxstyle="round,pad=0.24", fc="white", ec="none", alpha=0.84),
     )
 
     from matplotlib.lines import Line2D
     legend_handles = [
-        Line2D([0], [0], color=C_GT, lw=2.4, label="Ground truth"),
-        Line2D([0], [0], color="gray", lw=1.8, ls=":", label="LR obs (64-pt)"),
-        Line2D([0], [0], color=C_BIC, lw=2.0, ls="--", label="Bicubic"),
-        Line2D([0], [0], color=C_ONE, lw=2.0, label="One-Shot SR"),
-        Line2D([0], [0], color=C_ITER, lw=2.0, label="Iterative Refinement"),
+        Line2D([0], [0], color=C_GT, lw=2.3, ls="-", label="Ground truth"),
+        Line2D([0], [0], color="dimgray", lw=1.8, ls=":", label="LR obs (64)"),
+        Line2D([0], [0], color=C_BIC, lw=2.0, ls="-.", label="Bicubic"),
+        Line2D([0], [0], color=C_ONE, lw=2.0, ls="--", label="One-Shot SR"),
+        Line2D([0], [0], color=C_ITER, lw=2.0, ls=(0, (7, 2.2)), label="Iterative Refinement"),
+        Line2D([0], [0], color="gray", lw=1.0, ls=(0, (1, 2.2)), label=r"$k^{-2}$"),
     ]
     fig.legend(
         handles=legend_handles,
         loc="upper center",
         ncol=3,
         fontsize=10,
-        bbox_to_anchor=(0.5, 0.955),
-        framealpha=0.85,
+        bbox_to_anchor=(0.5, 0.965),
+        framealpha=0.9,
     )
     fig.suptitle(
-        f"Compensated spectrum comparison  |  traj {traj}  "
-        f"[t = 0, T/4, T/2, T−1]",
+        f"Energy spectrum comparison  |  traj {traj}  [t = 0, T/4, T/2, T-1]",
         fontsize=13,
-        y=0.99,
+        y=0.995,
     )
-    fig.tight_layout(rect=(0.04, 0.05, 0.99, 0.88))
+    fig.tight_layout(rect=(0.04, 0.05, 0.99, 0.90))
     _save(fig, "fig3_spectrum_comparison")
 
 

@@ -194,6 +194,17 @@ def train_diffusion(cfg: DictConfig, device: torch.device) -> GaussianDiffusion:
     warmup_steps  = int(cfg.diffusion_training.warmup_steps)   # 2 000
     ema_decay     = float(cfg.diffusion_training.ema_decay)    # 0.9999
 
+    # ── Input noise augmentation ─────────────────────────────────────────────
+    dt = cfg.diffusion_training
+    augment      = bool(dt.get("augment_inputs", False))
+    augment_prob = float(dt.get("augment_prob", 1.0))
+    raw_scales   = dt.get("augment_noise_scales", [[0.027, 0.0], [0.027, 0.003], [0.027, 0.004]])
+    noise_scales = {i: (float(s[0]), float(s[1])) for i, s in enumerate(raw_scales)}
+    if augment:
+        print(f"  Input augmentation ON  (prob={augment_prob}, scales={noise_scales})")
+    else:
+        print("  Input augmentation OFF")
+
     # ── Datasets & loaders ───────────────────────────────────────────────────
     print("Building datasets...")
     train_ds, val_ds = _build_diffusion_datasets(cfg)
@@ -276,6 +287,17 @@ def train_diffusion(cfg: DictConfig, device: torch.device) -> GaussianDiffusion:
         u_forecast = batch["u_forecast"].to(device, non_blocking=True)   # (B,1,N)
         u_coarse   = batch["u_coarse"  ].to(device, non_blocking=True)   # (B,1,N)
         res_idx    = batch["res_idx"   ].to(device, non_blocking=True)   # (B,)
+
+        # ── Input noise augmentation ─────────────────────────────────────────
+        # ResolutionBatchSampler guarantees all items in a batch share the same
+        # stage, so res_idx[0] gives the stage for the whole batch.
+        if augment:
+            r = int(res_idx[0].item())
+            fc_std, co_std = noise_scales[r]
+            if torch.rand(1).item() < augment_prob:
+                u_forecast = u_forecast + fc_std * torch.randn_like(u_forecast)
+            if co_std > 0.0:
+                u_coarse = u_coarse + co_std * torch.randn_like(u_coarse)
 
         optimizer.zero_grad(set_to_none=True)
         loss = diffusion.training_loss(u_truth, u_forecast, u_coarse, res_idx)

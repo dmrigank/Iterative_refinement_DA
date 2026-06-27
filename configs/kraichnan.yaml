@@ -83,15 +83,20 @@ diffusion_training:
   # of clean GT — augmenting training inputs with stage-calibrated Gaussian
   # noise teaches the model to be robust to this degradation.
   augment_inputs: true
-  augment_prob: 0.5       # probability of augmenting each input independently
+  augment_prob: 1.0 #0.5       # probability of augmenting each input independently
   # Per-stage (forecast_scale, coarse_scale) noise std.
   # Keep scales small — augmentation is a dither, not a distribution shift.
   # Stage 0: coarse = raw 32×32 obs (clean) → minimal coarse noise
   # Stage 1/2: coarse = prior-stage posterior → small but nonzero coarse noise
   augment_noise_scales:   # list of [fc_scale, co_scale] per stage index
     - [0.05, 0.02]         # stage 0 (32→64)
-    - [0.05, 0.10]         # stage 1 (64→128)
-    - [0.05, 0.10]         # stage 2 (128→256)
+    - [0.10, 0.20]         # stage 1 (64→128)
+    - [0.10, 0.19]         # stage 2 (128→256)
+
+
+#     - [0.05, 0.02]         # stage 0 (32→64)
+#     - [0.05, 0.10]         # stage 1 (64→128)
+#     - [0.05, 0.10]         # stage 2 (128→256)
 
 # =============================================================================
 # Inference
@@ -101,7 +106,7 @@ inference:
   eta: 1.0 # 0.0 for deterministic DDIM, 1.0 for stochastic DDPM sampling
   x0_clamp: 20.0  # 2D vorticity fields peak ~±10, clamp well above that
   n_samples: 1
-  test_time_steps: 100
+  test_time_steps: 200
 
 # =============================================================================
 # Paths (all separate from 1D)

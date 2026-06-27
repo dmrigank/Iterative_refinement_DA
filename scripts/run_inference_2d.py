@@ -60,9 +60,11 @@ def load_fnos_2d(cfg, device: torch.device) -> dict[int, FNO2d]:
     return fnos
 
 
-def load_diffusion_2d(cfg, device: torch.device) -> GaussianDiffusion:
-    ckpt_dir = Path(cfg.paths.checkpoint_dir)
-    ckpt     = torch.load(ckpt_dir / "diffusion_ema.pt", map_location=device, weights_only=True)
+def load_diffusion_2d(cfg, device: torch.device,
+                      diffusion_ckpt: str | None = None) -> GaussianDiffusion:
+    ckpt_path = Path(diffusion_ckpt) if diffusion_ckpt else \
+                Path(cfg.paths.checkpoint_dir) / "diffusion_ema.pt"
+    ckpt      = torch.load(ckpt_path, map_location=device, weights_only=True)
 
     # Patch type hint so GaussianDiffusion accepts ConditionalUNet2d
     import src.models.diffusion as _dm
@@ -101,10 +103,14 @@ def parse_args() -> argparse.Namespace:
                         help="Time steps per trajectory (default: cfg.inference.test_time_steps)")
     parser.add_argument("--traj_idx",   type=int, default=None,
                         help="Run only this trajectory index (default: all)")
-    parser.add_argument("--ddim_steps", type=int, default=None,
+    parser.add_argument("--ddim_steps",  type=int,   default=None,
                         help="Override DDIM steps (default: cfg.inference.ddim_steps)")
-    parser.add_argument("--eta", type=float, default=None,
+    parser.add_argument("--eta",         type=float, default=None,
                         help="Override DDIM eta (0=deterministic, 1=DDPM; default: cfg.inference.eta)")
+    parser.add_argument("--results_dir", type=str,   default=None,
+                        help="Override results directory (default: cfg.paths.results_dir)")
+    parser.add_argument("--diffusion_ckpt", type=str, default=None,
+                        help="Override path to diffusion_ema.pt (default: cfg.paths.checkpoint_dir/diffusion_ema.pt)")
     return parser.parse_args()
 
 
@@ -136,10 +142,14 @@ def main() -> None:
         cfg = OmegaConf.merge(cfg, OmegaConf.create({"inference": {"eta": args.eta}}))
         print(f"Eta overridden to: {args.eta}")
 
+    if args.results_dir is not None:
+        cfg = OmegaConf.merge(cfg, OmegaConf.create({"paths": {"results_dir": args.results_dir}}))
+        print(f"Results dir overridden to: {args.results_dir}")
+
     # ── Load models ──────────────────────────────────────────────────────────
     print("\nLoading models...")
     fnos      = load_fnos_2d(cfg, device)
-    diffusion = load_diffusion_2d(cfg, device)
+    diffusion = load_diffusion_2d(cfg, device, diffusion_ckpt=args.diffusion_ckpt)
     pipeline  = IterativeRefinementPipeline2d(fnos, diffusion, cfg, device)
 
     # ── Load test data ───────────────────────────────────────────────────────

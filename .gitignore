@@ -12,8 +12,22 @@ results_oneshot_1d/
 
 # Excluded docs and misc plots
 CLAUDE.md
+PROMPTS*.md
 PROMPTs_2D.md
+plots/
+plots_2d/
 plots_2d_misc/
+plots_oneshot/
+plots_oneshot_1d/
+plots_edsr/
+plots_edsr_1d/
+plots_enkf/
+plots_oi/
+plots_ablation*/
+
+# Misc stray/dev artifacts
+.codex
+commit_second_version.sh
 
 # Python
 __pycache__/

@@ -83,11 +83,17 @@ def rmse(pred: torch.Tensor, truth: torch.Tensor) -> float:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run iterative refinement inference")
-    parser.add_argument("--config",   type=str, default="configs/default.yaml")
-    parser.add_argument("--n_steps",  type=int, default=None,
+    parser.add_argument("--config",      type=str,   default="configs/default.yaml")
+    parser.add_argument("--n_steps",     type=int,   default=None,
                         help="Number of time steps per trajectory (default: cfg.inference.test_time_steps)")
-    parser.add_argument("--traj_idx", type=int, default=None,
+    parser.add_argument("--traj_idx",    type=int,   default=None,
                         help="Run only this trajectory index (default: all)")
+    parser.add_argument("--ddim_steps",  type=int,   default=None,
+                        help="Override DDIM steps (default: cfg.inference.ddim_steps)")
+    parser.add_argument("--eta",         type=float, default=None,
+                        help="Override DDIM eta (0=deterministic, 1=DDPM; default: cfg.inference.eta)")
+    parser.add_argument("--results_dir", type=str,   default=None,
+                        help="Override results directory (default: cfg.paths.results_dir)")
     return parser.parse_args()
 
 
@@ -106,6 +112,18 @@ def main() -> None:
 
     n_steps = args.n_steps if args.n_steps is not None else int(cfg.inference.test_time_steps)
     print(f"Time steps per trajectory: {n_steps}")
+
+    if args.ddim_steps is not None:
+        cfg = OmegaConf.merge(cfg, OmegaConf.create({"inference": {"ddim_steps": args.ddim_steps}}))
+        print(f"DDIM steps overridden to: {args.ddim_steps}")
+
+    if args.eta is not None:
+        cfg = OmegaConf.merge(cfg, OmegaConf.create({"inference": {"eta": args.eta}}))
+        print(f"Eta overridden to: {args.eta}")
+
+    if args.results_dir is not None:
+        cfg = OmegaConf.merge(cfg, OmegaConf.create({"paths": {"results_dir": args.results_dir}}))
+        print(f"Results dir overridden to: {args.results_dir}")
 
     # ── Load models ──────────────────────────────────────────────────────────
     print("\nLoading models...")

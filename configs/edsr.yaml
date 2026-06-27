@@ -1,0 +1,57 @@
+# configs/edsr.yaml
+# EDSR super-resolution baseline: 32x32 -> 256x256 (x8), no temporal context.
+# Each timestep is upscaled independently from the coarse observation.
+# Do NOT modify any existing 1D/2D/oneshot files.
+
+# =============================================================================
+# Data
+# =============================================================================
+data:
+  data_dir: "data_2d"
+  resolution_in: 32
+  resolution_out: 256
+
+# =============================================================================
+# EDSR Model
+# =============================================================================
+model:
+  n_resblocks: 16         # EDSR-baseline: 16 residual blocks
+  n_feats: 64             # feature channels throughout the network
+  scale: 8                # upscaling factor (32 -> 256)
+  res_scale: 0.1          # residual scaling (stabilises deep networks)
+  padding_mode: "circular" # periodic domain — must match iterative baseline
+
+# =============================================================================
+# Training
+# =============================================================================
+training:
+  steps: 200000           # same budget as iterative diffusion for fair comparison
+  batch_size: 16
+  lr: 1.0e-4              # EDSR paper recommendation for fine-scale tasks
+  weight_decay: 0.0
+  warmup_steps: 2000
+  log_interval: 500
+  save_interval: 25000
+  val_interval: 5000
+  loss: "l1"              # L1 loss (EDSR paper: sharper than MSE)
+  grad_clip: 1.0
+
+# =============================================================================
+# Inference
+# =============================================================================
+inference:
+  test_time_steps: 200
+
+# =============================================================================
+# Paths (all separate from 1D/2D/oneshot outputs)
+# =============================================================================
+paths:
+  checkpoint_dir: "checkpoints_edsr"
+  results_dir: "results_edsr"
+  plots_dir: "plots_edsr"
+
+# =============================================================================
+# General
+# =============================================================================
+seed: 42
+device: "auto"

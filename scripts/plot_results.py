@@ -537,25 +537,17 @@ def plot_hovmoller_comprehensive(
     traj_idx: int | None = None,
     n_time: int = 100,
 ) -> None:
-    """6-panel Hovmöller layout at 512 resolution.
+    """4-panel Hovmöller layout at 512 resolution.
 
-    Top row (equal width, shared y-axis):
-      Col 0: Coarse obs (64-pt, upsampled for display)
+    Panels (equal width, shared y-axis):
+      Col 0: Coarse obs (64-pt, shown at native resolution)
       Col 1: Ground truth (512-pt)
-      Col 2: Autoreg FNO-only (512-pt) — colormap saturates on blowup
+      Col 2: Autoreg FNO-only (512-pt) — masked after blowup
       Col 3: Diffusion posterior (512-pt)
 
-    Bottom row (cols 1-3 only, sharing the same x-axis as top):
-      Col 1: empty (spacer — no error for GT)
-      Col 2: |Autoreg − GT|  (log-scaled if blowup detected)
-      Col 3: |Posterior − GT|
-
-    The FNO-only blowup is made visible by:
-      - Hard-clipping the colormap to ±vmax (GT 99th-pct)
-      - Setting cmap.set_over / set_under to bright yellow/orange so
-        blown-up pixels are unmistakably saturated rather than just dark red.
-      - Annotating the first time step where |u_fno|_∞ > 5·vmax with a
-        horizontal dashed line labelled "blowup".
+    The FNO-only blowup is made visible by annotating the first time step where
+    |u_fno|_∞ > 5·vmax and masking later rows so the pre-blowup dynamics remain
+    readable instead of being overwhelmed by saturated colours.
     """
     res = 512
     post_all  = results[f"posterior_{res}"]   # (n_traj, T, 512)
@@ -574,52 +566,30 @@ def plot_hovmoller_comprehensive(
     post  = post_all [traj_idx, :n_time].numpy()
     obs64 = obs_all  [traj_idx, :n_time].numpy()   # (T, 64)
 
-    # Upsample coarse obs to 512 for display (spectral, but numpy-friendly via torch)
-    obs64_t  = torch.tensor(obs64, dtype=torch.float32)
-    from src.data.solver import spectral_upsample as _sup
-    coarse_display = _sup(obs64_t, 512).numpy()    # (T, 512)
-
     # ── colour limits ──────────────────────────────────────────────────────────
     vmax      = float(np.percentile(np.abs(truth), 99))
     vmin      = -vmax
     blowup_thr = 5.0 * vmax   # threshold for "blowup" annotation
-
-    # Error limits: use posterior error as reference (FNO error may be huge)
-    err_post = np.abs(post  - truth)
-    err_fno  = np.abs(fno   - truth)
-    emax_post = float(np.percentile(err_post, 99))
-    # For FNO error, cap display at 3× the posterior error max so the colour
-    # scale is still informative even when the FNO has blown up.
-    emax_fno  = max(emax_post * 3.0, float(np.percentile(err_fno[np.isfinite(err_fno)], 99))
-                    if np.any(np.isfinite(err_fno)) else emax_post * 3.0)
 
     # ── detect blowup time step ────────────────────────────────────────────────
     fno_inf_norm = np.max(np.abs(np.where(np.isfinite(fno), fno, 0.0)), axis=-1)  # (T,)
     blowup_steps = np.where(fno_inf_norm > blowup_thr)[0]
     blowup_t     = int(blowup_steps[0]) if len(blowup_steps) else None
 
+    # ── build masked FNO displays after blowup ────────────────────────────────
+    fno_display = np.where(np.isfinite(fno), fno, np.nan)
+    if blowup_t is not None:
+        fno_display[blowup_t:] = np.nan
+
+    x64 = np.linspace(0, 2 * np.pi, 64, endpoint=False)
     x512 = np.linspace(0, 2 * np.pi, 512, endpoint=False)
-    t_ax = np.arange(n_time)
-
-    # ── build colormap for FNO that saturates on blowup ───────────────────────
-    import copy
-    fno_cmap = copy.copy(plt.cm.RdBu_r)
-    fno_cmap.set_over("gold")
-    fno_cmap.set_under("limegreen")
-
-    # Safe-clip fno for display (replace inf/nan with ±5*vmax)
-    fno_display = np.clip(np.where(np.isfinite(fno), fno, np.sign(fno + 1e-9) * 5 * vmax),
-                          -5 * vmax, 5 * vmax)
+    extent64 = [x64[0], 2 * np.pi, 0, n_time - 1]
+    extent512 = [x512[0], 2 * np.pi, 0, n_time - 1]
 
     # ── figure layout via GridSpec ─────────────────────────────────────────────
-    # 6 columns: [coarse | gt | fno | post] on top row
-    #            [spacer | spacer | fno_err | post_err] on bottom row
-    # Bottom row is 55% the height of the top row.
-    fig = plt.figure(figsize=(20, 9))
+    fig = plt.figure(figsize=(18, 5.5))
     gs  = gridspec.GridSpec(
-        2, 4,
-        height_ratios=[1.0, 0.55],
-        hspace=0.08,   # tight vertical gap so error panels feel attached
+        1, 4,
         wspace=0.35,
     )
 
@@ -627,31 +597,25 @@ def plot_hovmoller_comprehensive(
     ax_gt       = fig.add_subplot(gs[0, 1], sharey=ax_coarse)
     ax_fno      = fig.add_subplot(gs[0, 2], sharey=ax_coarse)
     ax_post     = fig.add_subplot(gs[0, 3], sharey=ax_coarse)
-    ax_fno_err  = fig.add_subplot(gs[1, 2], sharex=ax_fno,  sharey=None)
-    ax_post_err = fig.add_subplot(gs[1, 3], sharex=ax_post, sharey=ax_fno_err)
 
-    # Hide the two unused bottom cells
-    for col in (0, 1):
-        fig.add_subplot(gs[1, col]).set_visible(False)
+    kw_field_64 = dict(origin="lower", aspect="auto", interpolation="nearest", rasterized=True)
+    kw_field_512 = dict(origin="lower", aspect="auto", interpolation="nearest", rasterized=True)
 
-    kw_field = dict(shading="auto", rasterized=True)
-    kw_err   = dict(shading="auto", rasterized=True, cmap=plt.cm.YlOrRd)
-
-    # ── top row: field panels ──────────────────────────────────────────────────
-    im0 = ax_coarse.pcolormesh(x512, t_ax, coarse_display,
-                                cmap=plt.cm.RdBu_r, vmin=vmin, vmax=vmax, **kw_field)
+    # ── field panels ───────────────────────────────────────────────────────────
+    im0 = ax_coarse.imshow(obs64, extent=extent64,
+                           cmap=plt.cm.RdBu_r, vmin=vmin, vmax=vmax, **kw_field_64)
     ax_coarse.set_title("Coarse obs (64-pt)", fontsize=13)
 
-    im1 = ax_gt.pcolormesh(x512, t_ax, truth,
-                            cmap=plt.cm.RdBu_r, vmin=vmin, vmax=vmax, **kw_field)
+    im1 = ax_gt.imshow(truth, extent=extent512,
+                       cmap=plt.cm.RdBu_r, vmin=vmin, vmax=vmax, **kw_field_512)
     ax_gt.set_title("Ground truth (512-pt)", fontsize=13)
 
-    im2 = ax_fno.pcolormesh(x512, t_ax, fno_display,
-                             cmap=fno_cmap, vmin=vmin, vmax=vmax, **kw_field)
+    im2 = ax_fno.imshow(fno_display, extent=extent512,
+                        cmap=plt.cm.RdBu_r, vmin=vmin, vmax=vmax, **kw_field_512)
     ax_fno.set_title("Autoreg FNO-only (512-pt)", fontsize=13)
 
-    im3 = ax_post.pcolormesh(x512, t_ax, post,
-                              cmap=plt.cm.RdBu_r, vmin=vmin, vmax=vmax, **kw_field)
+    im3 = ax_post.imshow(post, extent=extent512,
+                         cmap=plt.cm.RdBu_r, vmin=vmin, vmax=vmax, **kw_field_512)
     ax_post.set_title("Diffusion posterior (512-pt)", fontsize=13)
 
     # ── blowup annotation ─────────────────────────────────────────────────────
@@ -664,58 +628,32 @@ def plot_hovmoller_comprehensive(
             color="gold", fontsize=9, va="bottom",
             bbox=dict(boxstyle="round,pad=0.2", fc="black", alpha=0.55, ec="none"),
         )
-
-    # ── bottom row: error panels ───────────────────────────────────────────────
-    im_fe = ax_fno_err.pcolormesh(x512, t_ax, err_fno.clip(0, emax_fno),
-                                   vmin=0, vmax=emax_fno, **kw_err)
-    ax_fno_err.set_title("|FNO − GT|", fontsize=12)
-
-    im_pe = ax_post_err.pcolormesh(x512, t_ax, err_post,
-                                    vmin=0, vmax=emax_post, **kw_err)
-    ax_post_err.set_title("|Posterior − GT|", fontsize=12)
+        ax_fno.axhspan(blowup_t, n_time - 1, color="black", alpha=0.12)
 
     # ── labels & ticks ────────────────────────────────────────────────────────
     ax_coarse.set_ylabel("Time step $t$", fontsize=12)
-    ax_fno_err.set_ylabel("Time step $t$", fontsize=11)
+
+    for ax in (ax_coarse, ax_gt, ax_fno, ax_post):
+        ax.set_ylim(0, n_time - 1)
+        ax.set_xlabel("$x$", fontsize=12)
 
     for ax in (ax_gt, ax_fno, ax_post):
         plt.setp(ax.get_yticklabels(), visible=False)
 
-    for ax in (ax_coarse, ax_gt, ax_fno, ax_post):
-        plt.setp(ax.get_xticklabels(), visible=False)
-
-    for ax in (ax_fno_err, ax_post_err):
-        ax.set_xlabel("$x$", fontsize=12)
-    plt.setp(ax_post_err.get_yticklabels(), visible=False)
-
     # ── colorbars ─────────────────────────────────────────────────────────────
-    # Shared field colorbar (coarse / GT / posterior use same scale)
-    cb_field = fig.colorbar(im1, ax=[ax_coarse, ax_gt, ax_post],
-                             orientation="vertical", fraction=0.025, pad=0.02)
+    # Shared field colorbar placed outside the panel grid
+    cax = fig.add_axes([0.988, 0.16, 0.012, 0.64])
+    cb_field = fig.colorbar(im1, cax=cax, orientation="vertical")
     cb_field.set_label("$u$", fontsize=11)
-
-    # Separate colorbar for FNO (shows saturation)
-    cb_fno = fig.colorbar(im2, ax=ax_fno,
-                           orientation="vertical", fraction=0.046, pad=0.04,
-                           extend="both")
-    cb_fno.set_label("$u$ (clipped)", fontsize=10)
-
-    # Error colorbars
-    cb_fe = fig.colorbar(im_fe, ax=ax_fno_err,
-                          orientation="vertical", fraction=0.046, pad=0.04,
-                          extend="max")
-    cb_fe.set_label("|err|", fontsize=10)
-
-    cb_pe = fig.colorbar(im_pe, ax=ax_post_err,
-                          orientation="vertical", fraction=0.046, pad=0.04)
-    cb_pe.set_label("|err|", fontsize=10)
 
     # ── suptitle ──────────────────────────────────────────────────────────────
     blowup_note = f" · FNO blowup at $t$={blowup_t}" if blowup_t is not None else " · FNO stable"
     fig.suptitle(
         f"Hovmöller comparison — resolution {res} — trajectory {traj_idx}{blowup_note}",
-        fontsize=14, y=1.01,
+        fontsize=14, y=0.98,
     )
+    fig.subplots_adjust(left=0.05, right=0.975, bottom=0.12, top=0.84,
+                        wspace=0.32)
 
     _save(fig, "fig7_hovmoller_comprehensive", save_dir)
     plt.close(fig)

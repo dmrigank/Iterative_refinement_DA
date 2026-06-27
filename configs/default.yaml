@@ -6,13 +6,14 @@
 # =============================================================================
 pde:
   domain_length: 6.283185307179586  # 2*pi
-  viscosity: 5.0e-4
+  viscosity: 5.0e-3 #5.0e-4
+  linear_friction: 0.1   # alpha*u large-scale damping, prevents energy pile-up
   solver_grid: 2048
   solver_dt: 1.0e-4
   forcing_modes: 16
   forcing_sigma_decay: -1.0  # σ_k ∝ k^{forcing_sigma_decay}
   ou_correlation_time: 0.5
-  ou_sigma_base: 1.0  # base amplitude for forcing
+  ou_sigma_base: 0.5   # stationary field amplitude ~O(1); friction keeps it bounded
 
 data:
   output_cadence_steps: 500  # save every 500 solver steps (δ=0.05)
@@ -71,6 +72,29 @@ diffusion_training:
   log_interval: 500
   save_interval: 25000
   val_interval: 5000
+  # Input noise augmentation to bridge the train/inference distribution gap.
+  # At inference, stages 1 and 2 receive the previous diffusion posterior
+  # (not clean GT) as their coarse input, and the FNO forecast (not GT) as
+  # their dynamical prior. Augmenting training inputs with calibrated Gaussian
+  # noise teaches the model to be robust to these degradations.
+  #
+  # Scales calibrated from measured inference errors on the 1D test set:
+  #   FNO forecast error std:      ~0.027 at all three stages
+  #   Coarse input error at r=1:   ~0.003  (posterior_128 propagated to 256)
+  #   Coarse input error at r=2:   ~0.004  (posterior_256 propagated to 512)
+  # Field amplitude std ~0.69 → forecast error is ~4% relative, coarse ~0.5%.
+  #
+  # augment_prob applies to the forecast channel only (always augment forecast,
+  # since every inference step uses an imperfect FNO prior).
+  # For the coarse channel: augment stages 1/2 only, stage 0 receives clean obs.
+  #
+  # Per-stage [fc_scale, co_scale]:
+  augment_inputs: true
+  augment_prob: 1.0          # always augment forecast channel
+  augment_noise_scales:      # list of [fc_scale, co_scale] per stage index
+    - [0.027, 0.0]           # stage 0 (64->128):  coarse = raw obs (clean)
+    - [0.027, 0.003]         # stage 1 (128->256): coarse = posterior_128 error
+    - [0.027, 0.004]         # stage 2 (256->512): coarse = posterior_256 error
 
 # =============================================================================
 # Inference
