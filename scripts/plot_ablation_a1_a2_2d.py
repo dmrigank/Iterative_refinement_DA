@@ -199,22 +199,22 @@ def plot_a1_spectrum(
     r_2stage: dict,
     r_3stage: dict,
     truth_256: torch.Tensor,
+    k_max_plot: int = 90,
+    k_nyq: int = 16,
 ) -> None:
-    k_max_phys = 256 // 3   # 2/3 dealiasing cutoff
-
     E_gt, k_gt = _avg_radial_spectrum(truth_256)
     k_arr = k_gt[1:]
-    mask  = (k_arr >= 1) & (k_arr <= k_max_phys)
+    mask  = (k_arr >= 1) & (k_arr <= k_max_plot)
 
     def _E(r: dict | None, key: str = "posterior_256") -> np.ndarray | None:
         if r is None or key not in r:
             return None
-        E, k = _avg_radial_spectrum(r[key][:, :truth_256.shape[1]])
+        E, _ = _avg_radial_spectrum(r[key][:, :truth_256.shape[1]])
         return E[1:][mask]
 
-    E1 = _E(r_1stage)
-    E2 = _E(r_2stage)
-    E3 = _E(r_3stage)
+    E1  = _E(r_1stage)
+    E2  = _E(r_2stage)
+    E3  = _E(r_3stage)
     Egt = E_gt[1:][mask]
     kp  = k_arr[mask]
 
@@ -230,18 +230,18 @@ def plot_a1_spectrum(
 
     # k^{-3} reference anchored at k=5
     idx_anc = np.searchsorted(kp, 5)
-    k_ref   = np.array([3.0, float(k_max_phys)])
+    k_ref   = np.array([3.0, float(k_max_plot)])
     E_ref   = Egt[idx_anc] * (float(kp[idx_anc]) ** 3) * k_ref ** (-3)
     ax.loglog(k_ref, E_ref, color="gray", lw=1.0, ls=":", label=r"$k^{-3}$ reference")
 
-    ax.axvline(10, color="gray", ls="--", lw=0.8, alpha=0.5)
-    ax.text(10.5, ax.get_ylim()[0] if ax.get_ylim()[0] > 0 else 1e-10,
-            "k=10\n(obs cutoff)", color="gray", fontsize=8, va="bottom")
+    ax.axvline(k_nyq, color="gray", ls=":", lw=1.0, alpha=0.7)
+    ax.text(k_nyq * 1.05, Egt.max() * 0.4, "32×32\nNyquist",
+            color="gray", fontsize=9, va="top")
 
     ax.set_xlabel("Wavenumber  $k$")
     ax.set_ylabel("$E(k)$")
     ax.set_title("A1 — Cascade depth: radial energy spectrum at 256×256")
-    ax.set_xlim(left=1, right=k_max_phys * 1.1)
+    ax.set_xlim(left=1, right=k_max_plot * 1.1)
     ax.legend(framealpha=0.85)
     ax.grid(True, which="both", ls="--", alpha=0.2)
     fig.tight_layout()
@@ -352,19 +352,19 @@ def plot_a2_spectrum(
     r_fore: dict,
     r_obs:  dict,
     truth_256: torch.Tensor,
+    k_max_plot: int = 90,
+    k_nyq: int = 16,
 ) -> None:
-    k_max_phys = 256 // 3
-
     E_gt, k_gt = _avg_radial_spectrum(truth_256)
     k_arr = k_gt[1:]
-    mask  = (k_arr >= 1) & (k_arr <= k_max_phys)
+    mask  = (k_arr >= 1) & (k_arr <= k_max_plot)
     kp    = k_arr[mask]
     Egt   = E_gt[1:][mask]
 
     def _E(r: dict, key: str = "posterior_256") -> np.ndarray | None:
         if key not in r:
             return None
-        E, k = _avg_radial_spectrum(r[key][:, :truth_256.shape[1]])
+        E, _ = _avg_radial_spectrum(r[key][:, :truth_256.shape[1]])
         return E[1:][mask]
 
     Ep = _E(r_post)
@@ -382,18 +382,18 @@ def plot_a2_spectrum(
         ax.loglog(kp, Eo, color=C_OBSRAW, lw=1.8, ls=":",   label="(iii) Raw obs downsample")
 
     idx_anc = np.searchsorted(kp, 5)
-    k_ref   = np.array([3.0, float(k_max_phys)])
+    k_ref   = np.array([3.0, float(k_max_plot)])
     E_ref   = Egt[idx_anc] * (float(kp[idx_anc]) ** 3) * k_ref ** (-3)
     ax.loglog(k_ref, E_ref, color="gray", lw=1.0, ls=":", label=r"$k^{-3}$ reference")
 
-    ax.axvline(10, color="gray", ls="--", lw=0.8, alpha=0.5)
-    ax.text(10.5, ax.get_ylim()[0] if ax.get_ylim()[0] > 0 else 1e-10,
-            "k=10\n(obs cutoff)", color="gray", fontsize=8, va="bottom")
+    ax.axvline(k_nyq, color="gray", ls=":", lw=1.0, alpha=0.7)
+    ax.text(k_nyq * 1.05, Egt.max() * 0.4, "32×32\nNyquist",
+            color="gray", fontsize=9, va="top")
 
     ax.set_xlabel("Wavenumber  $k$")
     ax.set_ylabel("$E(k)$")
     ax.set_title("A2 — Propagation signal: radial energy spectrum at 256×256")
-    ax.set_xlim(left=1, right=k_max_phys * 1.1)
+    ax.set_xlim(left=1, right=k_max_plot * 1.1)
     ax.legend(framealpha=0.85)
     ax.grid(True, which="both", ls="--", alpha=0.2)
     fig.tight_layout()
@@ -450,7 +450,7 @@ def _print_a2_table(r_post, r_fore, r_obs, truth_dict) -> None:
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Plot ablations A1+A2 (2D)")
-    p.add_argument("--results_dir", type=str, default="results_2d")
+    p.add_argument("--results_dir", type=str, default="results_2d_v2")
     p.add_argument("--data_dir",    type=str, default="data_2d")
     p.add_argument("--n_steps",     type=int, default=None)
     p.add_argument("--figures",     type=str, default="1,2,3,4,5,6")
@@ -472,9 +472,13 @@ def main() -> None:
     print("Loading results ...")
     r_1stage = _load(rdir / "ablation_a1_1stage" / "inference_results.pt") or {}
     r_2stage = _load(rdir / "ablation_a1_2stage" / "inference_results.pt") or {}
-    r_3stage = (_load(rdir / "ablation_a1_3stage" / "inference_results.pt")
-                or _load(rdir / "inference_results.pt") or {})
-    r_post   = _load(rdir / "ablation_a2_posterior" / "inference_results.pt") or {}
+    # 3-stage is the full pipeline — prefer the main results file (better sample
+    # quality from the original run) over the ablation re-run.
+    r_3stage = (_load(rdir / "inference_results.pt")
+                or _load(rdir / "ablation_a1_3stage" / "inference_results.pt") or {})
+    # posterior propagation IS the full pipeline — prefer main results file
+    r_post   = (_load(rdir / "inference_results.pt")
+                or _load(rdir / "ablation_a2_posterior" / "inference_results.pt") or {})
     r_fore   = _load(rdir / "ablation_a2_forecast"  / "inference_results.pt") or {}
     r_obs    = _load(rdir / "ablation_a2_obs_raw"   / "inference_results.pt") or {}
 

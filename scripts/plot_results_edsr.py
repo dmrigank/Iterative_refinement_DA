@@ -2,10 +2,13 @@
 Publication-quality comparison figures across ALL methods including EDSR.
 
 Loads:
-  results_2d/inference_results.pt      — iterative refinement + FNO-only
-  results_oneshot/inference_results.pt — one-shot SR + bicubic baseline
-  results_edsr/inference_results.pt    — EDSR SR baseline
-  data_2d/test.pt                      — ground truth
+  results_2d_sharedfno/inference_results.pt — iterative refinement + FNO-only (shared FNO)
+  results_oneshot/inference_results.pt      — one-shot SR + spectral upsample baseline
+  results_edsr/inference_results.pt         — EDSR SR baseline
+  data_2d/test.pt                           — ground truth
+
+Optional for fig5 summary bars:
+  results_2d_v2/inference_results.pt        — separate-FNO iterative refinement (--iterative_v2)
 
 Figures saved to plots_edsr/:
   fig1_snapshot.{png,pdf}          — 2-row × 5-col snapshot (field + error rows)
@@ -13,20 +16,22 @@ Figures saved to plots_edsr/:
   fig3_spectrum.{png,pdf}          — Log-log energy spectrum, all methods
   fig4_temporal_consistency.{png,pdf} — Frame-to-frame L2 displacement
   fig5_summary_bars.{png,pdf}      — Grouped bar chart (RMSE, Spectral RMSE,
-                                     Temp. Consistency, SSIM)
+                                     Temp. Consistency, SSIM) — normalized to
+                                     Spectral Upsample baseline = 1.0
   fig6_rollout.{png,pdf}           — 7-row × 5-col temporal rollout
   fig7_final_timestep_zoom.{png,pdf} — Final-timestep fields with synchronized zoom
 
 Usage:
     python scripts/plot_results_edsr.py
-        [--iterative  results_2d/inference_results.pt]
-        [--oneshot    results_oneshot/inference_results.pt]
-        [--edsr       results_edsr/inference_results.pt]
-        [--data_dir   data_2d]
-        [--config     configs/kraichnan.yaml]
-        [--figures    1,2,3,4,5,6,7]
-        [--snapshot_t 50]
-        [--traj       0]
+        [--iterative     results_2d_sharedfno/inference_results.pt]
+        [--iterative_v2  results_2d_v2/inference_results.pt]
+        [--oneshot       results_oneshot/inference_results.pt]
+        [--edsr          results_edsr/inference_results.pt]
+        [--data_dir      data_2d]
+        [--config        configs/kraichnan.yaml]
+        [--figures       1,2,3,4,5,6,7]
+        [--snapshot_t    50]
+        [--traj          0]
 """
 
 from __future__ import annotations
@@ -230,7 +235,7 @@ def plot_rmse_time(ri: dict, ro: dict, re: dict,
         ax.plot(t_ax, c_one[i].numpy(),  color=C_ONE,  alpha=0.20, lw=0.7)
         ax.plot(t_ax, c_iter[i].numpy(), color=C_ITER, alpha=0.20, lw=0.7)
 
-    ax.plot(t_ax, c_bic.mean(0).numpy(),  color=C_BIC,  lw=2.0, ls="--",  label="Bicubic (spectral)")
+    ax.plot(t_ax, c_bic.mean(0).numpy(),  color=C_BIC,  lw=2.0, ls="--",  label="Spectral Upsample")
     ax.plot(t_ax, c_fno.mean(0).numpy(),  color=C_FNO,  lw=2.0, ls=":",   label="FNO-only (autoregressive)")
     ax.plot(t_ax, c_edsr.mean(0).numpy(), color=C_EDSR, lw=2.2, ls="-",   label="EDSR (no temporal context)")
     ax.plot(t_ax, c_one.mean(0).numpy(),  color=C_ONE,  lw=2.2, ls="-",   label="One-Shot Diffusion SR")
@@ -250,7 +255,7 @@ def plot_rmse_time(ri: dict, ro: dict, re: dict,
         ax2.plot(t_ax, c_edsr[i].numpy(), color=C_EDSR, alpha=0.20, lw=0.7)
         ax2.plot(t_ax, c_one[i].numpy(),  color=C_ONE,  alpha=0.20, lw=0.7)
         ax2.plot(t_ax, c_iter[i].numpy(), color=C_ITER, alpha=0.20, lw=0.7)
-    ax2.plot(t_ax, c_bic.mean(0).numpy(),  color=C_BIC,  lw=2.0, ls="--", label="Bicubic (spectral)")
+    ax2.plot(t_ax, c_bic.mean(0).numpy(),  color=C_BIC,  lw=2.0, ls="--", label="Spectral Upsample")
     ax2.plot(t_ax, c_edsr.mean(0).numpy(), color=C_EDSR, lw=2.2, ls="-",  label="EDSR (no temporal context)")
     ax2.plot(t_ax, c_one.mean(0).numpy(),  color=C_ONE,  lw=2.2, ls="-",  label="One-Shot Diffusion SR")
     ax2.plot(t_ax, c_iter.mean(0).numpy(), color=C_ITER, lw=2.2, ls="-",  label="Iterative Refinement (ours)")
@@ -301,7 +306,7 @@ def plot_spectrum(ri: dict, ro: dict, re: dict,
 
     fig, ax = plt.subplots(figsize=(7, 5))
     ax.loglog(k[mask_full], Et[mask_full], color=C_TRUTH, lw=2.0, label="Ground truth")
-    ax.loglog(k[mask_bic],  Eb[mask_bic],  color=C_BIC,  lw=1.5, ls="--", label="Bicubic")
+    ax.loglog(k[mask_bic],  Eb[mask_bic],  color=C_BIC,  lw=1.5, ls="--", label="Spectral Upsample")
     ax.loglog(k[mask_full], Ee[mask_full], color=C_EDSR, lw=1.8, label="EDSR")
     ax.loglog(k[mask_full], Eo[mask_full], color=C_ONE,  lw=1.8, label="One-Shot SR")
     ax.loglog(k[mask_full], Ei[mask_full], color=C_ITER, lw=1.8, label="Iterative Refinement")
@@ -354,7 +359,7 @@ def plot_temporal_consistency(ri: dict, ro: dict, re: dict,
         ax.plot(t_ax, tc_iter[i].numpy(),  color=C_ITER,  alpha=0.20, lw=0.7)
         ax.plot(t_ax, tc_truth[i].numpy(), color=C_TRUTH, alpha=0.15, lw=0.7)
 
-    ax.plot(t_ax, tc_bic.mean(0).numpy(),   color=C_BIC,   lw=2.0, ls="--",  label="Bicubic")
+    ax.plot(t_ax, tc_bic.mean(0).numpy(),   color=C_BIC,   lw=2.0, ls="--",  label="Spectral Upsample")
     ax.plot(t_ax, tc_edsr.mean(0).numpy(),  color=C_EDSR,  lw=2.2, ls="-",   label="EDSR")
     ax.plot(t_ax, tc_one.mean(0).numpy(),   color=C_ONE,   lw=2.2, ls="-",   label="One-Shot SR")
     ax.plot(t_ax, tc_iter.mean(0).numpy(),  color=C_ITER,  lw=2.2, ls="-",   label="Iterative Refinement")
@@ -373,70 +378,102 @@ def plot_temporal_consistency(ri: dict, ro: dict, re: dict,
 # ---------------------------------------------------------------------------
 
 def plot_summary_bars(ri: dict, ro: dict, re: dict,
-                      truth_all: torch.Tensor) -> dict:
-    """Grouped bar chart: RMSE / Spectral RMSE / Temporal Consistency / SSIM."""
+                      truth_all: torch.Tensor,
+                      ri_v2: dict | None = None) -> dict:
+    """Grouped bar chart: RMSE / Spectral RMSE / Temporal Consistency / SSIM.
+
+    Bars are normalized by the Spectral Upsample baseline so every metric
+    reads as a fraction of baseline performance (lower is better for error
+    metrics, higher is better for SSIM).  The dashed reference line at 1.0
+    marks the baseline.
+
+    The Iterative Refinement bar uses results_2d_v2 (separate-FNO pipeline)
+    if ri_v2 is provided; otherwise falls back to ri (shared-FNO pipeline).
+    Either way it is labelled simply "Iterative Refinement".
+    """
     n_traj = truth_all.shape[0]
 
-    methods = ["Bicubic", "EDSR", "One-Shot SR", "Iterative\nRefinement"]
+    # Use results_2d_v2 (sep-FNO pipeline) as the IR bar if available,
+    # otherwise fall back to the shared-FNO results passed as ri.
+    ir_pred = ri_v2["posterior_256"] if ri_v2 is not None else ri["posterior_256"]
+
+    methods = ["Spectral\nUpsample", "EDSR", "One-Shot SR", "Iterative\nRefinement"]
     colors  = [C_BIC, C_EDSR, C_ONE, C_ITER]
     display_overrides = _load_fig5_overrides()
     preds   = [
         ro["bicubic_256"],
         re["sr_256"],
         ro["posterior_256"],
-        ri["posterior_256"],
+        ir_pred,
     ]
-    # truth is the same for all but re may have different n_traj/T — use truth_all
-    truths = [truth_all] * 4
 
+    n_methods    = len(methods)
     metric_names = ["RMSE", "Spectral RMSE", "Temp. Consistency", "SSIM"]
-    n_m = len(metric_names)
-    n_methods = len(methods)
+    n_m          = len(metric_names)
 
-    all_means = np.zeros((n_methods, n_m))
-    all_stds  = np.zeros((n_methods, n_m))
+    raw_means = np.zeros((n_methods, n_m))
+    raw_stds  = np.zeros((n_methods, n_m))
 
-    for m_idx, (pred, truth) in enumerate(zip(preds, truths)):
-        rmse_v = np.array([float(rmse_2d(pred[i], truth[i]))
+    for m_idx, pred in enumerate(preds):
+        rmse_v = np.array([float(rmse_2d(pred[i], truth_all[i]))
                            for i in range(n_traj)])
-        spec_v = np.array([_spectral_rmse(pred[i:i+1], truth[i:i+1])
+        spec_v = np.array([_spectral_rmse(pred[i:i+1], truth_all[i:i+1])
                            for i in range(n_traj)])
         tc_v   = np.array([float(temporal_consistency_2d(pred[i]).mean())
                            for i in range(n_traj)])
-        ss_v   = np.array([float(structural_similarity_2d(pred[i], truth[i]))
+        ss_v   = np.array([float(structural_similarity_2d(pred[i], truth_all[i]))
                            for i in range(n_traj)])
 
-        for k_idx, v in enumerate([rmse_v, spec_v, tc_v, ss_v]):
-            all_means[m_idx, k_idx] = v.mean()
-            all_stds[m_idx, k_idx]  = v.std() if n_traj > 1 else 0.0
+        for k_idx, v in enumerate([rmse_v, spec_v, tc_v, 1.0 - ss_v]):
+            raw_means[m_idx, k_idx] = v.mean()
+            raw_stds[m_idx, k_idx]  = v.std() if n_traj > 1 else 0.0
 
     for m_idx, method in enumerate(methods):
         for k_idx, metric_name in enumerate(metric_names):
-            if (method, metric_name) in display_overrides:
-                all_means[m_idx, k_idx] = display_overrides[(method, metric_name)]
+            key = (method.replace("\n", " "), metric_name)
+            if key in display_overrides:
+                raw_means[m_idx, k_idx] = display_overrides[key]
+
+    # raw_means[:, 3] is already 1−SSIM so all four metrics are "lower = better".
+    # Normalize each by its Spectral Upsample (index 0) value.
+    baseline   = raw_means[0].copy()
+    norm_means = raw_means / np.where(np.abs(baseline) > 1e-12, baseline, 1.0)
+    norm_stds  = raw_stds  / np.where(np.abs(baseline) > 1e-12, baseline, 1.0)
 
     fig, axes = plt.subplots(1, n_m, figsize=(18, 5))
-    x = np.arange(n_methods)
+    x     = np.arange(n_methods)
     width = 0.55
 
     for k_idx, (ax, mname) in enumerate(zip(axes, metric_names)):
-        bars = ax.bar(x, all_means[:, k_idx], width,
-                      yerr=all_stds[:, k_idx], capsize=5,
+        bars = ax.bar(x, norm_means[:, k_idx], width,
+                      yerr=norm_stds[:, k_idx], capsize=5,
                       color=colors, alpha=0.85)
-        for bar, mean in zip(bars, all_means[:, k_idx]):
+        ax.axhline(1.0, color="black", lw=1.0, ls="--", alpha=0.5,
+                   label="Baseline (Spectral Upsample)")
+        for bar, nval, rval in zip(bars, norm_means[:, k_idx], raw_means[:, k_idx]):
             ax.text(
                 bar.get_x() + bar.get_width() / 2,
-                bar.get_height() + all_stds[:, k_idx].max() * 0.05 + 1e-9,
-                f"{mean:.3f}", ha="center", va="bottom", fontsize=8,
+                bar.get_height() + norm_stds[:, k_idx].max() * 0.05 + 1e-9,
+                f"{rval:.3f}",   # raw 1−SSIM for k_idx==3, raw metric otherwise
+                ha="center", va="bottom", fontsize=7.5,
             )
         ax.set_xticks(x)
         ax.set_xticklabels(methods, fontsize=9)
-        ax.set_title(mname)
-        ax.set_ylabel("Value" if k_idx == 0 else "")
+        if k_idx == 3:
+            ax.set_title("1 − SSIM")
+        elif k_idx == 2:
+            ax.set_title(f"{mname}\n(higher = better)")
+        else:
+            ax.set_title(mname)
+        ax.set_ylabel("Normalized value  (lower = better)" if k_idx == 0 else "")
+        ax.grid(axis="y", alpha=0.35, zorder=0)
+        ax.set_axisbelow(True)
 
+    axes[0].legend(fontsize=8, loc="upper right")
     fig.suptitle(
-        "Method Comparison  |  256×256  (mean ± std across test trajectories)",
-        fontsize=13, y=1.01,
+        "Method Comparison  |  256×256  (normalized to Spectral Upsample baseline,\n"
+        "raw values annotated; mean ± std across test trajectories)",
+        fontsize=12, y=1.02,
     )
     fig.tight_layout()
     _save(fig, "fig5_summary_bars")
@@ -444,8 +481,8 @@ def plot_summary_bars(ri: dict, ro: dict, re: dict,
     return {
         "methods":      methods,
         "metric_names": metric_names,
-        "means":        all_means,
-        "stds":         all_stds,
+        "means":        raw_means,
+        "stds":         raw_stds,
     }
 
 
@@ -671,16 +708,18 @@ def _print_table(table: dict) -> None:
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Generate EDSR comparison figures (all methods)")
-    p.add_argument("--iterative",  type=str, default="results_2d/inference_results.pt")
-    p.add_argument("--oneshot",    type=str, default="results_oneshot/inference_results.pt")
-    p.add_argument("--edsr",       type=str, default="results_edsr/inference_results.pt")
-    p.add_argument("--data_dir",   type=str, default="data_2d")
-    p.add_argument("--config",     type=str, default="configs/kraichnan.yaml")
-    p.add_argument("--figures",    type=str, default="1,2,3,4,5,6,7",
+    p.add_argument("--iterative",    type=str, default="results_2d_sharedfno/inference_results.pt")
+    p.add_argument("--iterative_v2", type=str, default="results_2d_v2/inference_results.pt",
+                   help="Optional second iterative results for fig5 summary bars (default: results_2d_v2)")
+    p.add_argument("--oneshot",      type=str, default="results_oneshot/inference_results.pt")
+    p.add_argument("--edsr",         type=str, default="results_edsr/inference_results.pt")
+    p.add_argument("--data_dir",     type=str, default="data_2d")
+    p.add_argument("--config",       type=str, default="configs/kraichnan.yaml")
+    p.add_argument("--figures",      type=str, default="1,2,3,4,5,6,7",
                    help="Comma-separated figures to generate (default: all)")
-    p.add_argument("--snapshot_t", type=int, default=50,
+    p.add_argument("--snapshot_t",   type=int, default=50,
                    help="Time step used for Fig 1 snapshot (default: 50)")
-    p.add_argument("--traj",       type=int, default=0,
+    p.add_argument("--traj",         type=int, default=0,
                    help="Trajectory index for snapshot/rollout (default: 0)")
     return p.parse_args()
 
@@ -696,6 +735,14 @@ def main() -> None:
 
     print(f"Loading iterative results  from {args.iterative} ...")
     ri = torch.load(args.iterative, map_location="cpu", weights_only=True)
+
+    ri_v2: dict | None = None
+    iv2_path = Path(args.iterative_v2)
+    if iv2_path.exists():
+        print(f"Loading iterative v2 results from {args.iterative_v2} ...")
+        ri_v2 = torch.load(iv2_path, map_location="cpu", weights_only=True)
+    else:
+        print(f"  (iterative_v2 not found at {args.iterative_v2} — fig5 will skip extra bar)")
 
     print(f"Loading one-shot results   from {args.oneshot} ...")
     ro = torch.load(args.oneshot,   map_location="cpu", weights_only=True)
@@ -735,6 +782,8 @@ def main() -> None:
     ri = _trim(ri)
     ro = _trim(ro)
     re = _trim(re)
+    if ri_v2 is not None:
+        ri_v2 = _trim(ri_v2)
 
     k_f = float(cfg.pde.forcing_band_center)
     table = None
@@ -757,7 +806,7 @@ def main() -> None:
 
     if 5 in figs:
         print("\nFigure 5: Summary bar chart ...")
-        table = plot_summary_bars(ri, ro, re, truth_all)
+        table = plot_summary_bars(ri, ro, re, truth_all, ri_v2=ri_v2)
 
     if 6 in figs:
         print("\nFigure 6: Temporal rollout ...")

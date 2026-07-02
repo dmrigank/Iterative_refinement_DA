@@ -102,6 +102,7 @@ def _get_warmup_cosine_scheduler(
 
 def _build_diffusion_datasets_2d(
     cfg: DictConfig,
+    forecast_dir_name: str = "fno_forecasts",
 ) -> tuple[DiffusionDataset2d, DiffusionDataset2d]:
     """Load FNO forecast files and ground-truth vorticity data; return train/val datasets.
 
@@ -112,9 +113,15 @@ def _build_diffusion_datasets_2d(
 
     forecast[i] ≈ truth[i+1]  (teacher-forced single-step prediction)
     So we slice: truth_data = truth[:, 1:, :, :]  to align with forecast[:, 0:T-1, :, :]
+
+    Args:
+        forecast_dir_name: Subdirectory of data_2d/ holding the FNO forecast
+            files. Use "fno_forecasts" (default) for the three independent
+            per-resolution FNOs, or "fno_forecasts_shared" for the shared
+            FNO's forecasts (see train_fno_2d_shared.py).
     """
     data_dir     = Path(cfg.data.data_dir)          # "data_2d"
-    forecast_dir = data_dir / "fno_forecasts"
+    forecast_dir = data_dir / forecast_dir_name
 
     resolution_pairs = [
         (32,   64, 0),
@@ -154,18 +161,36 @@ def _build_diffusion_datasets_2d(
 # Main training function
 # ---------------------------------------------------------------------------
 
-def train_diffusion_2d(cfg: DictConfig, device: torch.device) -> GaussianDiffusion:
+def train_diffusion_2d(
+    cfg: DictConfig,
+    device: torch.device,
+    forecast_dir_name: str = "fno_forecasts",
+    ckpt_name: str = "diffusion",
+) -> GaussianDiffusion:
     """Train the shared 2D diffusion corrector G (Strategy B).
 
     Args:
         cfg:    Full kraichnan.yaml config.
         device: Compute device.
+        forecast_dir_name: Which data_2d/ subdirectory to read FNO forecasts
+            from — "fno_forecasts" (default, three independent FNOs) or
+            "fno_forecasts_shared" (the shared FNO from train_fno_2d_shared.py).
+            The diffusion corrector MUST be retrained whenever the upstream
+            FNO forecaster changes: it is trained on the FNO's own forecast
+            outputs (Strategy B), so a different FNO has a different error
+            distribution for the corrector to learn to fix.
+        ckpt_name: Checkpoint filename stem. Periodic checkpoints are saved
+            as f"{ckpt_name}_step_{{N:06d}}.pt" and the final EMA weights as
+            f"{ckpt_name}_ema.pt". Use a distinct name (e.g. "diffusion_sharedfno")
+            when training against forecast_dir_name="fno_forecasts_shared" so
+            the original diffusion_ema.pt is never overwritten.
 
     Returns:
         GaussianDiffusion with EMA weights loaded (ready for inference).
     """
     print(f"\n{'='*60}")
     print("  Training 2D Diffusion Corrector G  (Strategy B)")
+    print(f"  forecast_dir_name={forecast_dir_name}  ckpt_name={ckpt_name}")
     print(f"{'='*60}")
 
     ckpt_dir = Path(cfg.paths.checkpoint_dir)
@@ -183,9 +208,16 @@ def train_diffusion_2d(cfg: DictConfig, device: torch.device) -> GaussianDiffusi
     dt = cfg.diffusion_training
     augment        = bool(dt.get("augment_inputs", True))
     augment_prob   = float(dt.get("augment_prob", 0.5))
-    # noise_scales[r] = (forecast_std, coarse_std) for stage index r
-    raw_scales     = dt.get("augment_noise_scales", [[0.3, 0.05], [0.3, 0.40], [0.3, 0.40]])
+    # noise_scales[r] = (forecast_std, coarse_std) for stage index r.
+    # Use the shared-FNO-calibrated scales when training against the shared
+    # FNO's forecast distribution — its error profile differs from the three
+    # separate FNOs (see configs/kraichnan.yaml comments for calibration).
+    scales_key     = "augment_noise_scales_sharedfno" if forecast_dir_name == "fno_forecasts_shared" \
+                      else "augment_noise_scales"
+    default_scales = [[0.3, 0.05], [0.3, 0.40], [0.3, 0.40]]
+    raw_scales     = dt.get(scales_key, default_scales)
     noise_scales   = {i: (float(s[0]), float(s[1])) for i, s in enumerate(raw_scales)}
+    print(f"  Augmentation scales key: {scales_key}")
     if augment:
         print(f"  Input augmentation ON  (prob={augment_prob}, scales={noise_scales})")
     else:
@@ -193,7 +225,7 @@ def train_diffusion_2d(cfg: DictConfig, device: torch.device) -> GaussianDiffusi
 
     # ── Datasets & loaders ───────────────────────────────────────────────────
     print("Building 2D diffusion datasets...")
-    train_ds, val_ds = _build_diffusion_datasets_2d(cfg)
+    train_ds, val_ds = _build_diffusion_datasets_2d(cfg, forecast_dir_name=forecast_dir_name)
     print(f"  Train samples: {len(train_ds):,}  |  Val samples: {len(val_ds):,}")
     for b in range(train_ds.n_blocks):
         print(f"    Block {b}: {train_ds.block_len(b):,} train samples")
@@ -251,7 +283,7 @@ def train_diffusion_2d(cfg: DictConfig, device: torch.device) -> GaussianDiffusi
 
     # ── Resume from latest checkpoint if present ─────────────────────────────
     start_step = 0
-    latest_ckpts = sorted(ckpt_dir.glob("diffusion_step_*.pt"))
+    latest_ckpts = sorted(ckpt_dir.glob(f"{ckpt_name}_step_*.pt"))
     if latest_ckpts:
         ckpt_path = latest_ckpts[-1]
         print(f"  Resuming from {ckpt_path}")
@@ -358,7 +390,7 @@ def train_diffusion_2d(cfg: DictConfig, device: torch.device) -> GaussianDiffusi
                 "step":       current_step,
                 "val_loss":   best_val_loss,
             }
-            save_path = ckpt_dir / f"diffusion_step_{current_step:06d}.pt"
+            save_path = ckpt_dir / f"{ckpt_name}_step_{current_step:06d}.pt"
             torch.save(ckpt, save_path)
             print(f"  Checkpoint saved: {save_path}")
 
@@ -374,9 +406,9 @@ def train_diffusion_2d(cfg: DictConfig, device: torch.device) -> GaussianDiffusi
             "step":       total_steps,
             "val_loss":   best_val_loss,
         },
-        ckpt_dir / "diffusion_ema.pt",
+        ckpt_dir / f"{ckpt_name}_ema.pt",
     )
-    print(f"\n  EMA checkpoint saved: {ckpt_dir / 'diffusion_ema.pt'}")
+    print(f"\n  EMA checkpoint saved: {ckpt_dir / f'{ckpt_name}_ema.pt'}")
     print(f"  Best val loss: {best_val_loss:.4f}")
 
     # Restore online weights then swap to EMA for return

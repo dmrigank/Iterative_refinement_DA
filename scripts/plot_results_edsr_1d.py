@@ -113,7 +113,7 @@ def _fno_blown_up(ri: dict, ro: dict, truth_all: torch.Tensor) -> bool:
     bic_rmse = float((bic - truth).pow(2).mean().sqrt())
     if fno_rmse > 5.0 * bic_rmse:
         print(
-            f"  [FNO blowup] FNO RMSE={fno_rmse:.4f} > 5× bicubic={bic_rmse:.4f} "
+            f"  [FNO blowup] FNO RMSE={fno_rmse:.4f} > 5× spectral upsample={bic_rmse:.4f} "
             "— skipping FNO."
         )
         return True
@@ -129,7 +129,7 @@ def _method_list(
 ) -> list[tuple[str, torch.Tensor, str, str]]:
     """Return (label, pred_traj, color, linestyle) ordered for display."""
     methods = [
-        ("Bicubic",              ro["bicubic_512"  ][traj], C_BIC,  "--"),
+        ("Spectral Upsample",    ro["bicubic_512"  ][traj], C_BIC,  "--"),
         ("EDSR-1D",              re["sr_512"        ][traj], C_EDSR, "-"),
         ("One-Shot SR",          ro["posterior_512" ][traj], C_ONE,  "-"),
         ("Iterative Refinement", ri["posterior_512" ][traj], C_ITER, "-"),
@@ -152,7 +152,8 @@ def plot_snapshot(
     """Field curve + |error| rows for each method, 4 time columns."""
     T = truth_all.shape[1]
     N = truth_all.shape[-1]
-    t_indices = [0, T // 4, T // 2, T - 1]
+    t_indices  = [0, T // 4, T // 2, T - 1]
+    t_labels   = ["t = 0", "t = T/4", "t = T/2", "t = T−1"]
     x512 = np.linspace(0, 2 * np.pi, N, endpoint=False)
 
     methods = _method_list(ri, ro, re, traj, fno_ok)
@@ -179,7 +180,7 @@ def plot_snapshot(
         left=0.07, right=0.97, top=0.94, bottom=0.04,
     )
 
-    for col_idx, t in enumerate(t_indices):
+    for col_idx, (t, t_label) in enumerate(zip(t_indices, t_labels)):
         gt = truth_all[traj, t].numpy()
 
         for m_idx, (label, pred_traj, color, ls) in enumerate(methods):
@@ -198,7 +199,7 @@ def plot_snapshot(
             else:
                 ax_f.set_yticklabels([])
             if m_idx == 0:
-                ax_f.set_title(f"t = {t}", fontsize=11)
+                ax_f.set_title(t_label, fontsize=11)
 
             ax_e = fig.add_subplot(gs[row_e, col_idx])
             ax_e.plot(x512, err, color=color, lw=1.3)
@@ -262,7 +263,7 @@ def plot_rmse_time(
         ax.plot(t_ax, mu, color=color, lw=2, ls=ls, label=label)
         ax.fill_between(t_ax, mu - sig, mu + sig, color=color, alpha=0.15)
 
-    _plot(c_bic,  C_BIC,  "Bicubic",               ls="--")
+    _plot(c_bic,  C_BIC,  "Spectral Upsample",     ls="--")
     if fno_ok and "fno_only_512" in ri:
         _plot(_curves(ri["fno_only_512"]), C_FNO, "FNO-only (autoreg.)", ls=":")
     _plot(c_edsr, C_EDSR, "EDSR-1D (no temporal context)")
@@ -292,6 +293,7 @@ def plot_spectrum(
     """2×2 panel energy spectrum averaged over trajectories at representative times."""
     T = truth_all.shape[1]
     t_indices = [T // 4, T // 2, (3 * T) // 4, T - 1]
+    t_labels  = ["t = T/4", "t = T/2", "t = 3T/4", "t = T−1"]
     k_full = np.arange(1, truth_all.shape[-1] // 2 + 1)
     k_obs  = np.arange(1, ro["obs_64"].shape[-1] // 2 + 1)
     full_mask = k_full <= k_max_plot
@@ -320,21 +322,21 @@ def plot_spectrum(
     fig, axes = plt.subplots(2, 2, figsize=(12.6, 8.4), sharex=True, sharey=True)
     axes = axes.ravel()
 
-    for ax, t in zip(axes, t_indices):
+    for ax, t, t_label in zip(axes, t_indices, t_labels):
         E_gt, E_obs, E_bic, E_edsr, E_one, E_iter = spectra[t]
         ref_amp = E_gt[4] * (5.0 ** 2)   # anchor k^-2 at k=5
         ref_y   = ref_amp * ref_k ** (-2.0)
 
         ax.loglog(k_full[full_mask], E_gt[full_mask],   color=C_GT,   lw=2.3, ls="-",         label="Ground truth")
         ax.loglog(k_obs,             E_obs,             color="dimgray", lw=1.8, ls=":",       label="LR obs (64)")
-        ax.loglog(k_full[bic_mask],  E_bic[bic_mask],   color=C_BIC,  lw=2.0, ls="-.",        label="Bicubic")
+        ax.loglog(k_full[bic_mask],  E_bic[bic_mask],   color=C_BIC,  lw=2.0, ls="-.",        label="Spectral Upsample")
         ax.loglog(k_full[edsr_mask], E_edsr[edsr_mask], color=C_EDSR, lw=2.0, ls=(0,(4,1.5)), label="EDSR-1D")
         ax.loglog(k_full[full_mask], E_one[full_mask],  color=C_ONE,  lw=2.0, ls="--",        label="One-Shot SR")
         ax.loglog(k_full[full_mask], E_iter[full_mask], color=C_ITER, lw=2.0, ls=(0,(7,2.2)), label="Iterative Refinement")
         ax.loglog(ref_k, ref_y, color="gray", lw=1.0, ls=(0,(1,2.2)), label=r"$k^{-2}$")
 
         ax.axvline(32, color="gray", ls=":", lw=0.9, alpha=0.65)
-        ax.text(0.97, 0.95, f"t = {t}", transform=ax.transAxes,
+        ax.text(0.97, 0.95, t_label, transform=ax.transAxes,
                 ha="right", va="top", fontsize=11,
                 bbox=dict(boxstyle="round,pad=0.22", fc="white", ec="none", alpha=0.82))
         ax.set_xlim(1, k_max_plot)
@@ -355,7 +357,7 @@ def plot_spectrum(
     legend_handles = [
         Line2D([0],[0], color=C_GT,    lw=2.3, ls="-",         label="Ground truth"),
         Line2D([0],[0], color="dimgray", lw=1.8, ls=":",        label="LR obs (64)"),
-        Line2D([0],[0], color=C_BIC,   lw=2.0, ls="-.",         label="Bicubic"),
+        Line2D([0],[0], color=C_BIC,   lw=2.0, ls="-.",         label="Spectral Upsample"),
         Line2D([0],[0], color=C_EDSR,  lw=2.0, ls=(0,(4,1.5)), label="EDSR-1D"),
         Line2D([0],[0], color=C_ONE,   lw=2.0, ls="--",         label="One-Shot SR"),
         Line2D([0],[0], color=C_ITER,  lw=2.0, ls=(0,(7,2.2)), label="Iterative Refinement"),
@@ -397,7 +399,7 @@ def plot_hovmoller(
         ("EDSR-1D",               edsr, C_EDSR),
         ("One-Shot SR",           one,  C_ONE),
         ("Iterative Refinement",  itr,  C_ITER),
-        ("Bicubic",               bic,  C_BIC),
+        ("Spectral Upsample",     bic,  C_BIC),
     ]
 
     fig, axes = plt.subplots(1, 5, figsize=(22, 5), sharey=True)
@@ -456,15 +458,22 @@ def plot_summary_bars(
     truth_all: torch.Tensor,
     fno_ok: bool = True,
 ) -> dict:
-    """4-metric grouped bar chart (RMSE, Spectral RMSE, Temp. Consistency, SSIM)."""
+    """4-metric grouped bar chart (RMSE, Spectral RMSE, Temp. Consistency, SSIM).
+
+    Bars are normalized by the Spectral Upsample baseline so every metric
+    reads as a fraction of baseline performance (lower is better for error
+    metrics, higher is better for SSIM — SSIM panel is inverted so lower = better
+    for visual consistency).  A dashed reference line at 1.0 marks the baseline.
+    Raw values are annotated on each bar.
+    """
     T = min(ri["posterior_512"].shape[1],
             ro["posterior_512"].shape[1],
             re["sr_512"].shape[1],
             truth_all.shape[1])
-    truth = truth_all[:, :T].float()
+    truth  = truth_all[:, :T].float()
     n_traj = truth.shape[0]
 
-    methods = ["Bicubic", "EDSR-1D", "One-Shot SR", "Iterative\nRefinement"]
+    methods = ["Spectral\nUpsample", "EDSR-1D", "One-Shot SR", "Iterative\nRefinement"]
     colors  = [C_BIC, C_EDSR, C_ONE, C_ITER]
     preds   = [
         ro["bicubic_512"  ][:, :T].float(),
@@ -479,53 +488,64 @@ def plot_summary_bars(
 
     n_methods = len(methods)
     mnames    = ["RMSE", "Spectral RMSE", "Temp. Consistency", "SSIM"]
-    means     = np.zeros((n_methods, 4))
-    stds      = np.zeros((n_methods, 4))
+    raw_means = np.zeros((n_methods, 4))
+    raw_stds  = np.zeros((n_methods, 4))
 
     for m_idx, pred in enumerate(preds):
         rmse_traj = np.array([
             float(pred[i].sub(truth[i]).pow(2).mean().sqrt())
             for i in range(n_traj)
         ])
-        means[m_idx, 0] = rmse_traj.mean()
-        stds[ m_idx, 0] = rmse_traj.std()
-        means[m_idx, 1] = _spectral_rmse_scalar(pred, truth)
-        means[m_idx, 2] = _tc_scalar(pred)
-        means[m_idx, 3] = _ssim_scalar(pred, truth)
-        # stds for scalar metrics are 0 (computed over all traj+time at once)
+        raw_means[m_idx, 0] = rmse_traj.mean()
+        raw_stds[ m_idx, 0] = rmse_traj.std()
+        raw_means[m_idx, 1] = _spectral_rmse_scalar(pred, truth)
+        raw_means[m_idx, 2] = _tc_scalar(pred)
+        raw_means[m_idx, 3] = 1.0 - _ssim_scalar(pred, truth)
+
+    # raw_means[:, 3] is already 1−SSIM so all four metrics are "lower = better".
+    # Normalize each by its Spectral Upsample (index 0) value.
+    baseline   = raw_means[0].copy()
+    norm_means = raw_means / np.where(np.abs(baseline) > 1e-12, baseline, 1.0)
+    norm_stds  = raw_stds  / np.where(np.abs(baseline) > 1e-12, baseline, 1.0)
 
     fig, axes = plt.subplots(1, len(mnames), figsize=(18, 5))
-    x = np.arange(n_methods)
+    x     = np.arange(n_methods)
     width = 0.55
 
     for k_idx, (ax, metric_name) in enumerate(zip(axes, mnames)):
         bars = ax.bar(
-            x,
-            means[:, k_idx],
-            width,
-            yerr=stds[:, k_idx],
-            capsize=5,
-            color=colors,
-            alpha=0.85,
+            x, norm_means[:, k_idx], width,
+            yerr=norm_stds[:, k_idx], capsize=5,
+            color=colors, alpha=0.85,
         )
-        label_pad = max(stds[:, k_idx].max() * 0.05, means[:, k_idx].max() * 0.01, 1e-9)
-        for bar, mean in zip(bars, means[:, k_idx]):
+        ax.axhline(1.0, color="black", lw=1.0, ls="--", alpha=0.5,
+                   label="Baseline (Spectral Upsample)")
+        label_pad = max(norm_stds[:, k_idx].max() * 0.05,
+                        norm_means[:, k_idx].max() * 0.01, 1e-9)
+        for bar, nval, rval in zip(bars, norm_means[:, k_idx], raw_means[:, k_idx]):
             ax.text(
                 bar.get_x() + bar.get_width() / 2,
                 bar.get_height() + label_pad,
-                f"{mean:.3f}",
-                ha="center",
-                va="bottom",
-                fontsize=8,
+                f"{rval:.3f}",
+                ha="center", va="bottom", fontsize=7.5,
             )
         ax.set_xticks(x)
         ax.set_xticklabels(methods, fontsize=9)
-        ax.set_title(metric_name)
-        ax.set_ylabel("Value" if k_idx == 0 else "")
+        if k_idx == 3:
+            ax.set_title("1 − SSIM")
+        elif k_idx == 2:
+            ax.set_title(f"{metric_name}\n(higher = better)")
+        else:
+            ax.set_title(metric_name)
+        ax.set_ylabel("Normalized value  (lower = better)" if k_idx == 0 else "")
+        ax.grid(axis="y", alpha=0.35, zorder=0)
+        ax.set_axisbelow(True)
 
+    axes[0].legend(fontsize=8, loc="upper right")
     fig.suptitle(
-        "Method Comparison  |  512-pt  (mean ± std across test trajectories)",
-        fontsize=13, y=1.01,
+        "Method Comparison  |  512-pt  (normalized to Spectral Upsample baseline,\n"
+        "raw values annotated; mean ± std across test trajectories)",
+        fontsize=12, y=1.02,
     )
     fig.tight_layout()
     _save(fig, "fig5_summary_bars", aliases=("fig5_summary_bars_1d",))
@@ -533,8 +553,8 @@ def plot_summary_bars(
     return {
         "methods":      [m.replace("\n", " ") for m in methods],
         "metric_names": mnames,
-        "means":        means,
-        "stds":         stds,
+        "means":        raw_means,
+        "stds":         raw_stds,
     }
 
 
@@ -581,7 +601,7 @@ def plot_spectral_rmse(
                     color=C_ITER, alpha=0.12, label="Gap: Iterative vs One-Shot")
 
     ax.plot(k_p, sr_bic[mask],  color=C_BIC,  lw=1.8, ls="--",
-            label=f"Bicubic       (mean={sr_bic[mask].mean():.4f})")
+            label=f"Spectral Upsample (mean={sr_bic[mask].mean():.4f})")
     ax.plot(k_p, sr_edsr[mask], color=C_EDSR, lw=2.0,
             label=f"EDSR-1D       (mean={sr_edsr[mask].mean():.4f})")
     ax.plot(k_p, sr_one[mask],  color=C_ONE,  lw=2.0,

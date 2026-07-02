@@ -83,8 +83,11 @@ diffusion_training:
   # of clean GT — augmenting training inputs with stage-calibrated Gaussian
   # noise teaches the model to be robust to this degradation.
   augment_inputs: true
-  augment_prob: 1.0 #0.5       # probability of augmenting each input independently
-  # Per-stage (forecast_scale, coarse_scale) noise std.
+  augment_prob: 1.0       # probability of augmenting each input independently
+  # Per-stage (forecast_scale, coarse_scale) noise std — calibrated for the
+  # THREE SEPARATE FNOs (fc_scale was a coarse round-number guess; co_scale
+  # was back-calibrated from this diffusion model's own measured posterior
+  # RMSE at each resolution: 0.196 / 0.206 / 0.213).
   # Keep scales small — augmentation is a dither, not a distribution shift.
   # Stage 0: coarse = raw 32×32 obs (clean) → minimal coarse noise
   # Stage 1/2: coarse = prior-stage posterior → small but nonzero coarse noise
@@ -93,6 +96,27 @@ diffusion_training:
     - [0.10, 0.20]         # stage 1 (64→128)
     - [0.10, 0.19]         # stage 2 (128→256)
 
+  # Same purpose, calibrated for the SHARED FNO (src/models/fno_2d_shared.py).
+  # fc_scale: directly measured teacher-forced one-step RMSE of fno_shared.pt
+  # on the full test set — 0.0605 / 0.0620 / 0.0626 at 64/128/256 (note: far
+  # flatter across resolution than the separate FNOs' 0.10/0.074/0.061, since
+  # one shared spectral operator is applied identically at every scale).
+  # co_scale: the separate-FNO co_scale above, scaled down by the ratio of
+  # shared-to-separate teacher-forced forecast error AT THE COARSE RESOLUTION
+  # each stage's coarse input is propagated from (stage r's coarse channel
+  # comes from stage r-1's posterior, so use the ratio at coarse_res, not
+  # target_res):
+  #   ratio@64  = 0.0605/0.1006 = 0.601  ->  stage 1 co_scale = 0.20*0.601 = 0.120
+  #   ratio@128 = 0.0620/0.0736 = 0.842  ->  stage 2 co_scale = 0.19*0.842 = 0.160
+  # This is a proxy, not a direct measurement — the shared FNO's diffusion
+  # corrector doesn't exist yet, so the true posterior error it will produce
+  # is unknown until after this training run. Re-measure and recalibrate if
+  # the trained model's actual posterior RMSE differs substantially from the
+  # separate-FNO posterior RMSE used as the base estimate above.
+  augment_noise_scales_sharedfno: 
+    - [0.060, 0.020]        # stage 0 (32→64)
+    - [0.062, 0.120]        # stage 1 (64→128)
+    - [0.063, 0.160]        # stage 2 (128→256)
 
 #     - [0.05, 0.02]         # stage 0 (32→64)
 #     - [0.05, 0.10]         # stage 1 (64→128)

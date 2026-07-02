@@ -7,7 +7,7 @@ spectrum_schematic.{png,pdf}
     Single-panel schematic showing E(k) averaged over all time/trajectories.
     Highlights that IR uniquely recovers fine-scale energy beyond the obs. Nyquist.
     OI is excluded — it is not a fair method-level comparison (see run_inference_oi.py).
-    Methods shown: Ground truth | Bicubic | EDSR | One-shot SR | IR (ours).
+    Methods shown: Ground truth | Spectral Upsample | EDSR | One-shot SR | IR (ours).
 
 fig3a_spectrum_panels.{png,pdf}
     2×2 panel version of the above, one panel per time slice (t=T/4, T/2, 3T/4, T-1),
@@ -149,10 +149,10 @@ def plot_schematic(
     ax.loglog(k_p, E_truth[mask],
               color=C_TRUTH, lw=3.0, zorder=10, label="Ground truth")
 
-    # Bicubic: solid up to Nyquist then vertical drop to show hard cutoff
+    # Spectral Upsample: solid up to Nyquist then vertical drop to show hard cutoff
     ax.loglog(k[mask_bic], E_bic[mask_bic],
               color=C_BIC, lw=2.2, ls=(0, (4, 2)), zorder=5,
-              label="Bicubic  (zero for k > 16)")
+              label="Spectral Upsample  (zero for k > 16)")
     ax.loglog([K_NYQ, K_NYQ + 0.01],
               [E_bic[mask_bic][-1], E_truth[mask].min() * 5e-2],
               color=C_BIC, lw=2.2, ls=(0, (4, 2)), zorder=5)
@@ -252,9 +252,9 @@ def plot_schematic(
                edgecolors=[C_IR, C_ONE, C_EDSR],
                linewidths=1.8, zorder=18)
 
-    # Bicubic zero label
+    # Spectral Upsample zero label
     ax.annotate(
-        "Bicubic cutoff\nzero for $k > 16$",
+        "Spectral Upsample cutoff\nzero for $k > 16$",
         xy=(K_NYQ + 0.7, E_truth[mask].min() * 28),
         xytext=(18.6, 1.05e-4),
         fontsize=9.6, color="#7b7b7b", fontweight="bold", ha="left",
@@ -266,7 +266,7 @@ def plot_schematic(
     # ── Legend (lower-left, away from annotations) ────────────────────────────
     handles = [
         Line2D([0],[0], color=C_TRUTH, lw=3.0,               label="Ground truth"),
-        Line2D([0],[0], color=C_BIC,   lw=2.2, ls=(0,(4,2)), label="Bicubic  (zero for k > 16)"),
+        Line2D([0],[0], color=C_BIC,   lw=2.2, ls=(0,(4,2)), label="Spectral Upsample  (zero for k > 16)"),
         Line2D([0],[0], color=C_EDSR,  lw=2.0, ls=(0,(3,1.5)), label="EDSR  (deterministic SR)"),
         Line2D([0],[0], color=C_ONE,   lw=2.0, ls="--",       label="One-shot diffusion SR"),
         Line2D([0],[0], color=C_IR,    lw=3.2,                label="Iterative Refinement (ours)"),
@@ -374,7 +374,7 @@ def plot_spectrum_panels(
         ax.loglog(k_full, Et[mask_full],
                   color=C_TRUTH, lw=2.3, ls="-",       label="Ground truth")
         ax.loglog(k_bic,  Ebic[mask_bic],
-                  color=C_BIC,   lw=1.8, ls="-.",      label="Bicubic")
+                  color=C_BIC,   lw=1.8, ls="-.",      label="Spectral Upsample")
         ax.loglog(k_full, Ee[mask_full],
                   color=C_EDSR,  lw=1.8, ls=(0,(3,1.5)), label="EDSR")
         ax.loglog(k_full, Eo[mask_full],
@@ -411,7 +411,7 @@ def plot_spectrum_panels(
     # Shared legend above the panels
     handles = [
         Line2D([0],[0], color=C_TRUTH, lw=2.3,               label="Ground truth"),
-        Line2D([0],[0], color=C_BIC,   lw=1.8, ls="-.",      label="Bicubic"),
+        Line2D([0],[0], color=C_BIC,   lw=1.8, ls="-.",      label="Spectral Upsample"),
         Line2D([0],[0], color=C_EDSR,  lw=1.8, ls=(0,(3,1.5)), label="EDSR"),
         Line2D([0],[0], color=C_ONE,   lw=1.8, ls="--",      label="One-shot SR"),
         Line2D([0],[0], color=C_IR,    lw=2.3,                label="Iterative Refinement (ours)"),

@@ -38,6 +38,7 @@ from omegaconf import OmegaConf
 from tqdm import tqdm
 
 from src.models.fno_2d import FNO2d
+from src.models.fno_2d_shared import SharedFNO2d, SharedFNOResolutionAdapter
 from src.models.unet_2d import ConditionalUNet2d
 from src.models.diffusion import GaussianDiffusion
 from src.inference.pipeline_2d import IterativeRefinementPipeline2d
@@ -58,6 +59,23 @@ def load_fnos_2d(cfg, device: torch.device) -> dict[int, FNO2d]:
         fnos[res] = model
         print(f"  Loaded FNO2d {res}×{res}  (epoch {ckpt['epoch']}, val_loss={ckpt['val_loss']:.4e})")
     return fnos
+
+
+def load_shared_fno_2d(
+    cfg, device: torch.device, k_max_shared: int = 64,
+) -> SharedFNOResolutionAdapter:
+    """Load the shared FNO checkpoint and wrap it in a dict-like adapter so
+    it drops into IterativeRefinementPipeline2d (which indexes fnos[res])
+    without any pipeline changes.
+    """
+    ckpt_dir = Path(cfg.paths.checkpoint_dir)
+    model    = SharedFNO2d(cfg, k_max_shared=k_max_shared).to(device)
+    ckpt     = torch.load(ckpt_dir / "fno_shared.pt", map_location=device, weights_only=True)
+    model.load_state_dict(ckpt["model"])
+    model.eval()
+    print(f"  Loaded SharedFNO2d  k_max_shared={k_max_shared}  "
+          f"(epoch {ckpt['epoch']}, val_loss={ckpt['val_loss']:.4e})")
+    return SharedFNOResolutionAdapter(model, resolutions=(64, 128, 256))
 
 
 def load_diffusion_2d(cfg, device: torch.device,
@@ -111,6 +129,18 @@ def parse_args() -> argparse.Namespace:
                         help="Override results directory (default: cfg.paths.results_dir)")
     parser.add_argument("--diffusion_ckpt", type=str, default=None,
                         help="Override path to diffusion_ema.pt (default: cfg.paths.checkpoint_dir/diffusion_ema.pt)")
+    parser.add_argument("--fno_variant", type=str, default="separate",
+                        choices=["separate", "shared"],
+                        help="'separate' (default): three independent FNO2d checkpoints "
+                             "(fno_64.pt/fno_128.pt/fno_256.pt). 'shared': one SharedFNO2d "
+                             "checkpoint (fno_shared.pt). When using 'shared', also pass "
+                             "--diffusion_ckpt pointing at the diffusion model retrained "
+                             "against the shared FNO's forecasts (e.g. diffusion_sharedfno_ema.pt) "
+                             "— the default diffusion_ema.pt was trained on the separate FNOs' "
+                             "forecast distribution and is NOT valid for the shared FNO.")
+    parser.add_argument("--k_max_shared", type=int, default=64,
+                        help="Fixed spectral mode truncation used by the shared FNO "
+                             "(only relevant when --fno_variant shared; must match training)")
     return parser.parse_args()
 
 
@@ -148,7 +178,10 @@ def main() -> None:
 
     # ── Load models ──────────────────────────────────────────────────────────
     print("\nLoading models...")
-    fnos      = load_fnos_2d(cfg, device)
+    if args.fno_variant == "shared":
+        fnos = load_shared_fno_2d(cfg, device, k_max_shared=args.k_max_shared)
+    else:
+        fnos = load_fnos_2d(cfg, device)
     diffusion = load_diffusion_2d(cfg, device, diffusion_ckpt=args.diffusion_ckpt)
     pipeline  = IterativeRefinementPipeline2d(fnos, diffusion, cfg, device)
 

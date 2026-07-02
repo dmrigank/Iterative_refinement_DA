@@ -35,6 +35,7 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src.evaluation.metrics_2d import radial_energy_spectrum
+from src.data.dataset_2d import spectral_upsample_2d
 
 # ── style ─────────────────────────────────────────────────────────────────────
 plt.rcParams.update({
@@ -70,10 +71,15 @@ def _rmse_t(pred, truth):
 
 
 def _bicubic(obs32, ny=256, nx=256):
-    flat = obs32.reshape(-1, 1, 32, 32).float()
-    up   = torch.nn.functional.interpolate(flat, size=(ny, nx),
-                                           mode="bicubic", align_corners=False)
-    return up.squeeze(1).reshape(*obs32.shape[:-2], ny, nx)
+    """Spectral (Fourier zero-padding) upsample — labeled "bicubic" here for
+    consistency with the baseline used throughout the rest of the repo
+    (results_oneshot/inference_results.pt's "bicubic_256", plot_results_oi.py,
+    plot_results_edsr.py, etc., which all use spectral_upsample_2d under this
+    name). NOT true pixel-domain bicubic interpolation — that baseline is
+    substantially weaker (RMSE ~0.96 vs ~0.33 here) since it doesn't exploit
+    the field's known spectral structure.
+    """
+    return spectral_upsample_2d(obs32.float(), target_ny=ny, target_nx=nx)
 
 
 def _band_rmse(pred, truth, k_lo, k_hi):
@@ -106,7 +112,7 @@ def plot_snapshot(re, rf, ri, out_dir, traj=0, t=50):
                float(np.percentile(np.abs(enkf_f - gt), 99.5)),
                float(np.percentile(np.abs(ir      - gt), 99.5)))
 
-    methods = ["Ground Truth", "Bicubic", "Solver EnKF", "Learned EnKF\n(FNO)", "Iter. Refinement"]
+    methods = ["Ground Truth", "Spectral Upsample", "Solver EnKF", "Learned EnKF\n(FNO)", "Iter. Refinement"]
     fields  = [gt, bic, enkf_s, enkf_f, ir]
     errors  = [None, bic-gt, enkf_s-gt, enkf_f-gt, ir-gt]
 
@@ -163,7 +169,7 @@ def plot_rmse_time(re, rf, ri, out_dir):
         ax.plot(ts, m, color=c, lw=2.0, ls=ls, label=lbl)
         ax.fill_between(ts, m-s, m+s, color=c, alpha=0.12)
 
-    _pl(m_bic, s_bic, C["bicubic"],     "Bicubic",                    "--")
+    _pl(m_bic, s_bic, C["bicubic"],     "Spectral Upsample",          "--")
     _pl(m_es,  s_es,  C["enkf_solver"], "Solver EnKF  (N=20)",         "-")
     _pl(m_ef,  s_ef,  C["enkf_fno"],    "Learned EnKF — FNO  (N=20)", "-.")
     _pl(m_ir,  s_ir,  C["ir"],          "Iterative Refinement (ours)", "-")
@@ -204,7 +210,7 @@ def plot_spectrum(re, rf, ri, out_dir, traj=0):
         E_ref = E_t[1:][4] * (5.0**3) * k_ref**(-3)
 
         ax.loglog(k_arr[mask],     E_t[1:][mask],      color=C["truth"],        lw=2.0,          label="Ground truth")
-        ax.loglog(k_arr[mask_bic], E_b[1:][mask_bic],  color=C["bicubic"],      lw=1.4, ls="--", label="Bicubic")
+        ax.loglog(k_arr[mask_bic], E_b[1:][mask_bic],  color=C["bicubic"],      lw=1.4, ls="--", label="Spectral Upsample")
         ax.loglog(k_arr[mask],     E_es[1:][mask],     color=C["enkf_solver"],  lw=1.8, ls="-",  label="Solver EnKF")
         ax.loglog(k_arr[mask],     E_ef[1:][mask],     color=C["enkf_fno"],     lw=1.8, ls="-.", label="Learned EnKF (FNO)")
         ax.loglog(k_arr[mask],     E_ir[1:][mask],     color=C["ir"],           lw=1.8,          label="Iter. Refinement")
@@ -239,7 +245,7 @@ def plot_per_band_rmse(re, rf, ri, out_dir):
               re["enkf_256"     ].float(),
               rf["enkf_256"     ][:n,:T].float(),
               ri["posterior_256"][:n,:T].float()]
-    labels = ["Bicubic", "Solver EnKF", "Learned EnKF (FNO)", "Iter. Refinement"]
+    labels = ["Spectral Upsample", "Solver EnKF", "Learned EnKF (FNO)", "Iter. Refinement"]
     colors = [C["bicubic"], C["enkf_solver"], C["enkf_fno"], C["ir"]]
 
     flat_t = truth.reshape(-1, 256, 256)
@@ -338,7 +344,7 @@ def plot_runtime(out_dir):
 
 
 def plot_rmse_bar(re, rf, ri, out_dir):
-    """Bar chart comparing aggregate RMSE across all three DA methods + Bicubic.
+    """Bar chart comparing aggregate RMSE across all three DA methods + Spectral Upsample.
     IR value is hardcoded from the v2 checkpoint results (0.19).
     """
     truth = re["truth_256"].float()
@@ -358,7 +364,7 @@ def plot_rmse_bar(re, rf, ri, out_dir):
     # IR v2 checkpoint result — hardcoded
     ir_mean,    ir_std    = 0.19, 0.013
 
-    methods = ["Bicubic", "Learned EnKF\n(FNO, N=20)", "Iter. Refinement\n(ours)", "Solver EnKF\n(N=20)"]
+    methods = ["Spectral Upsample", "Learned EnKF\n(FNO, N=20)", "Iter. Refinement\n(ours)", "Solver EnKF\n(N=20)"]
     means   = [bic_mean,  ef_mean,                      ir_mean,                    es_mean]
     stds    = [bic_std,   ef_std,                        ir_std,                     es_std]
     colors  = [C["bicubic"], C["enkf_fno"], C["ir"], C["enkf_solver"]]

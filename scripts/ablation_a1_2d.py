@@ -223,6 +223,8 @@ def _run_and_save(
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Ablation A1 (2D): cascade depth sweep")
     p.add_argument("--config",      type=str,  default="configs/kraichnan.yaml")
+    p.add_argument("--results_dir", type=str,  default=None,
+                   help="Override cfg.paths.results_dir (e.g. results_2d_v2)")
     p.add_argument("--n_steps",     type=int,  default=None)
     p.add_argument("--skip_1stage", action="store_true")
     p.add_argument("--skip_2stage", action="store_true")
@@ -263,7 +265,7 @@ def main() -> None:
     )
     n_test       = test_data["w_32"].shape[0]
     traj_indices = list(range(n_test))
-    results_root = Path(cfg.paths.results_dir)
+    results_root = Path(args.results_dir) if args.results_dir else Path(cfg.paths.results_dir)
 
     # ── 1-stage ───────────────────────────────────────────────────────────────
     if args.skip_1stage:
